@@ -1,0 +1,105 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# uv
+uv.lock.bak
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Project
+*.log
+logs/
+.local/
+model_artifacts/
+data/raw/
+data/interim/
+
+# Alembic — keep versions/ committed, ignore nothing here by default
+
+# Docker
+docker-compose.override.yml
+implementation_plan.md
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Node / JavaScript (future Next.js frontend)
+node_modules/
+.next/
+.turbo/
+next-env.d.ts
+*.tsbuildinfo
+
+# Coverage
+.coverage.*
+coverage.xml
+.hypothesis/
+
+# Browser automation (Playwright)
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Scraping (Scrapy)
+.scrapy/
+
+# ML artifacts
+*.pkl
+*.joblib
+*.onnx
+mlruns/
+wandb/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Local data / DB dumps
+data/processed/
+data/external/
+dump.rdb
+*.sqlite
+*.sqlite3
+
+# Secrets beyond .env
+*.pem
+*.key
+*.crt
+secrets/
+
+# Claude Code project config
+.claude/
