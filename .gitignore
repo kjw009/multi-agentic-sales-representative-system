@@ -103,3 +103,4 @@ secrets/
 
 # Claude Code project config
 .claude/
+CLAUDE.md
