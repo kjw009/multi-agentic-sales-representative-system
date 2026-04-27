@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.deps import get_current_seller
 from packages.agents.intake.agent import load_history, run as run_agent
+from packages.agents.pipeline import run_pipeline
 from packages.db.models import ChatMessage, ChatRole, Seller
 from packages.db.session import get_session
 from packages.schemas.intake import MessageRequest, MessageResponse
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/agent/intake", tags=["intake"])
 @router.post("/message", response_model=MessageResponse)
 async def intake_message(
     body: MessageRequest,
+    background_tasks: BackgroundTasks,
     seller: Seller = Depends(get_current_seller),
     session: AsyncSession = Depends(get_session),
 ) -> MessageResponse:
@@ -47,5 +49,9 @@ async def intake_message(
     )
     session.add(assistant_msg)
     await session.commit()
+
+    # Intake complete → kick off pricing + publishing in the background
+    if complete and item_id:
+        background_tasks.add_task(run_pipeline, seller.id, item_id)
 
     return MessageResponse(content=reply_text, item_id=item_id, needs_image=needs_image)
