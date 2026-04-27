@@ -25,7 +25,9 @@ dependencies = [
   # Task queue & message bus
   "celery[redis]>=5.4",
   "redis>=5.2",
-  # Orchestration (reserved for Phase 1+)
+  # AI
+  "anthropic>=0.49",
+  # Orchestration
   "langgraph>=0.2",
   # Auth
   "cryptography>=43.0",
