@@ -30,7 +30,7 @@ async def intake_message(
     await session.flush()
 
     # Run Agent 1
-    reply_text, item_id = await run_agent(
+    reply_text, item_id, needs_image = await run_agent(
         message=body.content,
         seller_id=seller.id,
         item_id=body.item_id,
@@ -48,4 +48,4 @@ async def intake_message(
     session.add(assistant_msg)
     await session.commit()
 
-    return MessageResponse(content=reply_text, item_id=item_id)
+    return MessageResponse(content=reply_text, item_id=item_id, needs_image=needs_image)
