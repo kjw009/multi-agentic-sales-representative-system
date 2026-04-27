@@ -7,16 +7,20 @@ import { api } from "@/lib/api";
 interface Message {
   role: "user" | "assistant";
   content: string;
+  needsImage?: boolean;
+  imageUrl?: string;
 }
 
 export default function ChatPage() {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [itemId, setItemId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [ebayConnected, setEbayConnected] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [connectingEbay, setConnectingEbay] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!localStorage.getItem("token")) {
@@ -54,13 +58,44 @@ export default function ChatPage() {
     setLoading(true);
 
     try {
-      const reply = await api.sendMessage(content);
-      setMessages((prev) => [...prev, { role: "assistant", content: reply.content }]);
+      const reply = await api.sendMessage(content, itemId);
+      if (reply.item_id) setItemId(reply.item_id);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: reply.content, needsImage: reply.needs_image },
+      ]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error";
       setMessages((prev) => [...prev, { role: "assistant", content: `⚠ ${msg}` }]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !itemId) return;
+
+    setUploading(true);
+    // Show local preview immediately
+    const localUrl = URL.createObjectURL(file);
+    setMessages((prev) => [...prev, { role: "user", content: "", imageUrl: localUrl }]);
+
+    try {
+      await api.uploadImage(file, itemId);
+      // Tell the agent the image was uploaded so it can continue
+      const reply = await api.sendMessage("I've uploaded the image.", itemId);
+      if (reply.item_id) setItemId(reply.item_id);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: reply.content, needsImage: reply.needs_image },
+      ]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      setMessages((prev) => [...prev, { role: "assistant", content: `⚠ ${msg}` }]);
+    } finally {
+      setUploading(false);
+      e.target.value = "";
     }
   }
 
@@ -75,19 +110,13 @@ export default function ChatPage() {
       <aside className="w-56 bg-white border-r border-gray-200 flex flex-col p-4 gap-3">
         <p className="font-semibold text-sm">SalesRep</p>
         <div className="flex-1" />
-
-        {!ebayConnected ? (
-          <button
-            onClick={handleConnectEbay}
-            disabled={connectingEbay}
-            className="w-full text-left text-sm bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {connectingEbay ? "Redirecting…" : "Connect eBay"}
-          </button>
-        ) : (
-          <p className="text-xs text-green-600 font-medium px-1">✓ eBay connected</p>
-        )}
-
+        <button
+          onClick={handleConnectEbay}
+          disabled={connectingEbay}
+          className="w-full text-sm bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {connectingEbay ? "Redirecting…" : "Connect eBay"}
+        </button>
         <button
           onClick={logout}
           className="w-full text-left text-sm text-gray-400 hover:text-gray-700 px-1 transition-colors"
@@ -100,22 +129,50 @@ export default function ChatPage() {
       <main className="flex-1 flex flex-col">
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
           {messages.map((m, i) => (
-            <div
-              key={i}
-              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-lg rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                  m.role === "user"
-                    ? "bg-gray-900 text-white rounded-br-sm"
-                    : "bg-white border border-gray-200 text-gray-800 rounded-bl-sm"
-                }`}
-              >
-                {m.content}
+            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className="max-w-lg space-y-2">
+                {/* Image preview */}
+                {m.imageUrl && (
+                  <div className="flex justify-end">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={m.imageUrl}
+                      alt="uploaded"
+                      className="max-h-48 rounded-xl border border-gray-200 object-cover"
+                    />
+                  </div>
+                )}
+
+                {/* Text bubble */}
+                {m.content && (
+                  <div
+                    className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                      m.role === "user"
+                        ? "bg-gray-900 text-white rounded-br-sm"
+                        : "bg-white border border-gray-200 text-gray-800 rounded-bl-sm"
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+                )}
+
+                {/* Upload button — shown on the message that requested a photo */}
+                {m.needsImage && (
+                  <div className="flex justify-start">
+                    <button
+                      onClick={() => fileRef.current?.click()}
+                      disabled={uploading || !itemId}
+                      className="flex items-center gap-2 text-sm bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl px-4 py-2 disabled:opacity-50 transition-colors"
+                    >
+                      {uploading ? "Uploading…" : "📷 Upload photo"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
-          {loading && (
+
+          {(loading || uploading) && (
             <div className="flex justify-start">
               <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-gray-400">
                 …
@@ -125,6 +182,16 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
 
+        {/* Hidden file input */}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+        {/* Message input */}
         <form
           onSubmit={sendMessage}
           className="border-t border-gray-200 bg-white px-6 py-4 flex gap-3"
@@ -137,7 +204,7 @@ export default function ChatPage() {
           />
           <button
             type="submit"
-            disabled={loading || !input.trim()}
+            disabled={loading || uploading || !input.trim()}
             className="bg-gray-900 text-white rounded-xl px-4 py-2 text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors"
           >
             Send
