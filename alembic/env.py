@@ -5,6 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from packages.config import settings
 from packages.db.base import Base
+import packages.db.models  # noqa: F401 — registers ORM models with Base.metadata
 
 config = context.config
 
