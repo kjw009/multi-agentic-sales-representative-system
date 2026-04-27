@@ -27,6 +27,10 @@ dependencies = [
   "redis>=5.2",
   # Orchestration (reserved for Phase 1+)
   "langgraph>=0.2",
+  # Auth
+  "PyJWT>=2.9",
+  "bcrypt>=4.2",
+  "email-validator>=2.2",
   # Utilities
   "httpx>=0.27",
   "structlog>=24.4",
