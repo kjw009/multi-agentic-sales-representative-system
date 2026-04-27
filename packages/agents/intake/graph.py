@@ -43,6 +43,7 @@ class IntakeState(TypedDict):
     messages: list[dict]
     reply: str
     complete: bool
+    needs_image: bool
 
 
 async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
@@ -56,6 +57,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
     reply = ""
     complete = False
+    needs_image = False
 
     for _ in range(10):  # safety cap on agentic iterations
         response = await client.chat.completions.create(
@@ -104,7 +106,10 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 "content": result_text,
             })
 
-            if tc.function.name in ("ask_user_question", "request_image"):
+            if tc.function.name == "request_image":
+                terminal_reply = result_text
+                needs_image = True
+            elif tc.function.name == "ask_user_question":
                 terminal_reply = result_text
             elif tc.function.name == "mark_intake_complete":
                 terminal_reply = "Great — I have everything I need to prepare your listing!"
@@ -122,6 +127,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
         "messages": state_messages,
         "reply": reply,
         "complete": complete,
+        "needs_image": needs_image,
     }
 
 
