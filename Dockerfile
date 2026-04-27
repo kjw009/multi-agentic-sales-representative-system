@@ -1,12 +1,14 @@
+FROM ghcr.io/astral-sh/uv:latest AS uv
+
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_SYSTEM_PYTHON=1
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 COPY . .
 
