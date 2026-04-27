@@ -29,9 +29,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiry_minutes: int = 60 * 24 * 7  # 7 days
 
+    # base64url-encoded 32-byte key; generate with: python -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+    token_encryption_key: str = ""
+
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
     ebay_env: str = "sandbox"
+    ebay_redirect_uri: str = "http://localhost:8000/auth/ebay/callback"
 
 
 @lru_cache
