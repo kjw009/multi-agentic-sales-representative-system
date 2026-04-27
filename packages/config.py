@@ -25,6 +25,10 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
 
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expiry_minutes: int = 60 * 24 * 7  # 7 days
+
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
     ebay_env: str = "sandbox"
