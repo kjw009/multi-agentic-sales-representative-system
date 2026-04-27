@@ -1,4 +1,5 @@
 from functools import lru_cache
+import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,7 +24,7 @@ class Settings(BaseSettings):
     s3_bucket: str = "salesrep-images"
     s3_region: str = "us-east-1"
 
-    openai_api_key: str = ""
+    openai_api_key: str = os.getenv("OPENAI_API_KEY")
     model_agent1: str = "gpt-4.1-nano"
     model_agent4: str = "gpt-4.1-mini"
 
