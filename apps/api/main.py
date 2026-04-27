@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from apps.api.routers import auth, health
+from apps.api.routers import auth, ebay, health
 
 app = FastAPI(
     title="Multi-Agent Sales Assistant",
@@ -9,3 +9,4 @@ app = FastAPI(
 
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(ebay.router)
