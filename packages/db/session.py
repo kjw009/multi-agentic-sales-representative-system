@@ -21,4 +21,5 @@ async def set_current_seller_id(session: AsyncSession, seller_id: uuid.UUID) -> 
     SET LOCAL scopes the setting to the current transaction so it cannot leak
     across requests when connections are reused from the pool.
     """
-    await session.execute(text("SET LOCAL app.current_seller_id = :sid"), {"sid": str(seller_id)})
+    # SET LOCAL does not accept bind parameters — UUID is safe to inline directly.
+    await session.execute(text(f"SET LOCAL app.current_seller_id = '{seller_id}'"))
