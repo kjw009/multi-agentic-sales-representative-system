@@ -23,7 +23,9 @@ class Settings(BaseSettings):
     s3_bucket: str = "salesrep-images"
     s3_region: str = "us-east-1"
 
-    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    model_agent1: str = "gpt-4.1-nano"
+    model_agent4: str = "gpt-4.1-mini"
 
     jwt_secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

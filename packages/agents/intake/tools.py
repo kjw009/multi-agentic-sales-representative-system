@@ -7,67 +7,80 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.db.models import Item, ItemCondition, ItemStatus
 
+# OpenAI function-calling schema
 TOOL_DEFINITIONS = [
     {
-        "name": "ask_user_question",
-        "description": (
-            "Ask the seller a follow-up question to gather missing information. "
-            "Use this when you need one specific piece of information. Ask one question at a time."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "question": {"type": "string", "description": "The question to ask the seller."}
-            },
-            "required": ["question"],
-        },
-    },
-    {
-        "name": "record_attribute",
-        "description": (
-            "Save a piece of information about the item. "
-            "Call this for every attribute the seller mentions before asking follow-up questions."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "field": {
-                    "type": "string",
-                    "enum": [
-                        "name", "brand", "category", "subcategory",
-                        "condition", "age_months", "description", "seller_floor_price",
-                    ],
-                    "description": "The item attribute to save.",
+        "type": "function",
+        "function": {
+            "name": "ask_user_question",
+            "description": (
+                "Ask the seller a follow-up question to gather missing information. "
+                "Ask one question at a time."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "The question to ask the seller."}
                 },
-                "value": {
-                    "type": "string",
-                    "description": "The value to save. For condition use: new, like_new, good, fair, or poor.",
+                "required": ["question"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_attribute",
+            "description": (
+                "Save a piece of information about the item. "
+                "Call this for every attribute the seller mentions before asking follow-up questions."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string",
+                        "enum": [
+                            "name", "brand", "category", "subcategory",
+                            "condition", "age_months", "description", "seller_floor_price",
+                        ],
+                        "description": "The item attribute to save.",
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The value. For condition use: new, like_new, good, fair, or poor.",
+                    },
                 },
+                "required": ["field", "value"],
             },
-            "required": ["field", "value"],
         },
     },
     {
-        "name": "request_image",
-        "description": "Ask the seller to upload a photo of the item.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Instructions for which photo to upload.",
-                }
+        "type": "function",
+        "function": {
+            "name": "request_image",
+            "description": "Ask the seller to upload a photo of the item.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Instructions for which photo to upload.",
+                    }
+                },
+                "required": ["prompt"],
             },
-            "required": ["prompt"],
         },
     },
     {
-        "name": "mark_intake_complete",
-        "description": (
-            "Mark intake as complete once you have collected: name, category, condition, "
-            "description, and have asked for at least one image. Do not call this before those are recorded."
-        ),
-        "input_schema": {"type": "object", "properties": {}, "required": []},
+        "type": "function",
+        "function": {
+            "name": "mark_intake_complete",
+            "description": (
+                "Mark intake as complete once you have recorded name, category, condition, "
+                "description, and have asked for at least one image."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
     },
 ]
 
