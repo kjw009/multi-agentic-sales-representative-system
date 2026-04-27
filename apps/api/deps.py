@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.auth import decode_access_token
 from packages.db.models import Seller
-from packages.db.session import get_session
+from packages.db.session import get_session, set_current_seller_id
 
 _bearer = HTTPBearer()
 
@@ -25,4 +25,6 @@ async def get_current_seller(
     seller = await session.scalar(select(Seller).where(Seller.id == seller_id, Seller.is_active == True))  # noqa: E712
     if seller is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Seller not found or inactive")
+
+    await set_current_seller_id(session, seller.id)
     return seller
