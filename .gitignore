@@ -56,12 +56,19 @@ implementation_plan.md
 # Notebooks
 .ipynb_checkpoints/
 
-# Node / JavaScript (future Next.js frontend)
+# Node / Next.js
 node_modules/
 .next/
+out/
 .turbo/
+.vercel/
 next-env.d.ts
 *.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tgz
 
 # Coverage
 .coverage.*
@@ -101,6 +108,6 @@ dump.rdb
 *.crt
 secrets/
 
-# Claude Code project config
+# Claude Code — local session data only; CLAUDE.md is intentionally committed
 .claude/
 CLAUDE.md
