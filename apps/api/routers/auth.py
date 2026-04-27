@@ -12,8 +12,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def signup(
-    body: SignupRequest, session: AsyncSession = Depends(get_session)
-) -> TokenResponse:  # noqa: B008
+    body: SignupRequest,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> TokenResponse:
     existing = await session.scalar(select(Seller).where(Seller.email == body.email))
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
@@ -29,8 +30,8 @@ async def signup(
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)) -> TokenResponse:  # noqa: B008
     seller = await session.scalar(
-        select(Seller).where(Seller.email == body.email, Seller.is_active == True)
-    )  # noqa: E712
+        select(Seller).where(Seller.email == body.email, Seller.is_active)
+    )
     if seller is None or not verify_password(body.password, seller.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"

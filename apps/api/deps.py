@@ -24,9 +24,7 @@ async def get_current_seller(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token"
         ) from None
 
-    seller = await session.scalar(
-        select(Seller).where(Seller.id == seller_id, Seller.is_active == True)
-    )  # noqa: E712
+    seller = await session.scalar(select(Seller).where(Seller.id == seller_id, Seller.is_active))
     if seller is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Seller not found or inactive"
