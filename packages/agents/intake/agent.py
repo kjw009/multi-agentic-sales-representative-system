@@ -53,9 +53,10 @@ async def run(
             "messages": all_messages,
             "reply": "",
             "complete": False,
+            "needs_image": False,
         },
         config={"configurable": {"session": session}},
     )
 
     updated_item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
-    return state["reply"], updated_item_id
+    return state["reply"], updated_item_id, state["needs_image"]
