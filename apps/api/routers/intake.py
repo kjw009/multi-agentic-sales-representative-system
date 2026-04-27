@@ -2,7 +2,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.deps import get_current_seller
-from packages.agents.intake.agent import load_history, run as run_agent
+from packages.agents.intake.agent import load_history
+from packages.agents.intake.agent import run as run_agent
 from packages.agents.pipeline import run_pipeline
 from packages.db.models import ChatMessage, ChatRole, Seller
 from packages.db.session import get_session
@@ -15,8 +16,8 @@ router = APIRouter(prefix="/agent/intake", tags=["intake"])
 async def intake_message(
     body: MessageRequest,
     background_tasks: BackgroundTasks,
-    seller: Seller = Depends(get_current_seller),
-    session: AsyncSession = Depends(get_session),
+    seller: Seller = Depends(get_current_seller),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> MessageResponse:
     # Load history BEFORE saving the current message to avoid double-counting it
     history = await load_history(seller.id, body.item_id, session)
@@ -32,7 +33,7 @@ async def intake_message(
     await session.flush()
 
     # Run Agent 1
-    reply_text, item_id, needs_image = await run_agent(
+    reply_text, item_id, needs_image, complete = await run_agent(
         message=body.content,
         seller_id=seller.id,
         item_id=body.item_id,

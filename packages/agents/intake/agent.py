@@ -1,18 +1,17 @@
 import uuid
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.db.models import ChatMessage, ChatRole
 from packages.agents.intake.graph import graph
+from packages.db.models import ChatMessage, ChatRole
 
 _HISTORY_LIMIT = 20
 
 
 async def load_history(
     seller_id: uuid.UUID,
-    item_id: Optional[uuid.UUID],
+    item_id: uuid.UUID | None,
     session: AsyncSession,
 ) -> list[dict]:
     """Return the last N messages for this item in Anthropic message format."""
@@ -40,10 +39,10 @@ async def load_history(
 async def run(
     message: str,
     seller_id: uuid.UUID,
-    item_id: Optional[uuid.UUID],
+    item_id: uuid.UUID | None,
     session: AsyncSession,
-    history: Optional[list[dict]] = None,
-) -> tuple[str, Optional[uuid.UUID]]:
+    history: list[dict] | None = None,
+) -> tuple[str, uuid.UUID | None, bool, bool]:
     all_messages = (history or []) + [{"role": "user", "content": message}]
 
     state = await graph.ainvoke(
@@ -59,4 +58,4 @@ async def run(
     )
 
     updated_item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
-    return state["reply"], updated_item_id, state["needs_image"]
+    return state["reply"], updated_item_id, state["needs_image"], state["complete"]

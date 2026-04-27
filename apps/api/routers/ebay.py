@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.deps import get_current_seller
 from packages.config import settings
-from packages.crypto import decrypt_token, encrypt_token
+from packages.crypto import encrypt_token
 from packages.db.models import Platform, PlatformCredential, Seller
 from packages.db.session import get_session
 from packages.platform_adapters.ebay.oauth import (
@@ -26,11 +26,12 @@ _STATE_TTL = 600  # seconds — how long the state nonce lives in Redis
 
 def _redis():
     import redis.asyncio as aioredis
+
     return aioredis.from_url(settings.redis_url, decode_responses=True)
 
 
 @router.get("/connect")
-async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict:
+async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict:  # noqa: B008
     """
     Returns the eBay authorization URL. The frontend should redirect the user there.
     Stores PKCE verifier + seller_id in Redis keyed by the state nonce.
@@ -55,7 +56,7 @@ async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict:
 async def ebay_callback(
     code: str = Query(...),
     state: str = Query(...),
-    session: AsyncSession = Depends(get_session),
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict:
     """
     eBay redirects the seller's browser here after consent.
@@ -68,7 +69,9 @@ async def ebay_callback(
         await r.aclose()
 
     if stored is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state"
+        )
 
     data = json.loads(stored)
     seller_id = uuid.UUID(data["seller_id"])
@@ -80,7 +83,7 @@ async def ebay_callback(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"eBay token exchange failed: {exc.response.text}",
-        )
+        ) from exc
 
     access_token: str = token_data["access_token"]
     refresh_token: str | None = token_data.get("refresh_token")

@@ -7,8 +7,9 @@ It is intentionally separate from the per-message intake graph.
 Phase 2 replaces the pricing_node stub with real ML inference.
 Phase 3 replaces the publisher_node stub with the eBay Sell API.
 """
+
 import uuid
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -23,8 +24,8 @@ class PipelineState(TypedDict):
     recommended_price: float
     confidence_score: float
     listing_status: str
-    listing_url: Optional[str]
-    error: Optional[str]
+    listing_url: str | None
+    error: str | None
 
 
 async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict:

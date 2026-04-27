@@ -1,6 +1,5 @@
 import uuid
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,8 +39,14 @@ TOOL_DEFINITIONS = [
                     "field": {
                         "type": "string",
                         "enum": [
-                            "name", "brand", "category", "subcategory",
-                            "condition", "age_months", "description", "seller_floor_price",
+                            "name",
+                            "brand",
+                            "category",
+                            "subcategory",
+                            "condition",
+                            "age_months",
+                            "description",
+                            "seller_floor_price",
                         ],
                         "description": "The item attribute to save.",
                     },
@@ -90,7 +95,7 @@ _STRING_FIELDS = {"name", "brand", "category", "subcategory", "description"}
 
 async def _get_or_create_item(
     seller_id: uuid.UUID,
-    item_id: Optional[uuid.UUID],
+    item_id: uuid.UUID | None,
     session: AsyncSession,
 ) -> Item:
     if item_id:
@@ -113,9 +118,9 @@ async def execute_tool(
     tool_name: str,
     tool_input: dict,
     seller_id: uuid.UUID,
-    item_id: Optional[uuid.UUID],
+    item_id: uuid.UUID | None,
     session: AsyncSession,
-) -> tuple[str, Optional[uuid.UUID]]:
+) -> tuple[str, uuid.UUID | None]:
     """Execute a tool call. Returns (result_text, updated_item_id)."""
 
     if tool_name == "ask_user_question":

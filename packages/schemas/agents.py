@@ -1,5 +1,5 @@
 import uuid
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -15,8 +15,8 @@ class ListingResult(BaseModel):
     item_id: uuid.UUID
     platform: Literal["ebay"]
     status: str
-    external_id: Optional[str] = None
-    listing_url: Optional[str] = None
+    external_id: str | None = None
+    listing_url: str | None = None
 
 
 class CommsResult(BaseModel):

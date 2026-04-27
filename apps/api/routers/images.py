@@ -17,10 +17,10 @@ _ALLOWED = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 @router.post("/upload-image")
 async def upload_item_image(
-    item_id: uuid.UUID = Query(...),
-    file: UploadFile = File(...),
-    seller: Seller = Depends(get_current_seller),
-    session: AsyncSession = Depends(get_session),
+    item_id: uuid.UUID = Query(...),  # noqa: B008
+    file: UploadFile = File(...),  # noqa: B008
+    seller: Seller = Depends(get_current_seller),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict:
     if file.content_type not in _ALLOWED:
         raise HTTPException(
@@ -39,9 +39,7 @@ async def upload_item_image(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
 
-    position = await session.scalar(
-        select(func.count()).where(ItemImage.item_id == item_id)
-    ) or 0
+    position = await session.scalar(select(func.count()).where(ItemImage.item_id == item_id)) or 0
 
     s3_key, url = await upload_image(data, file.filename or "image.jpg", seller.id, item_id)
 

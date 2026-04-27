@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Optional, TypedDict
+from typing import TypedDict
 
 import openai
 from langchain_core.runnables import RunnableConfig
@@ -16,7 +16,7 @@ Your goal is to gather all the information needed to create a great listing. Req
 - name: what the item is (e.g. "Nike Air Max 90 trainers size 10")
 - category: product category (e.g. "Trainers", "Laptops", "Coffee Tables")
 - condition: must be exactly one of: new, like_new, good, fair, poor
-- description: 2–3 sentences about the item
+- description: 2-3 sentences about the item
 
 Optional but useful:
 - brand
@@ -39,7 +39,7 @@ price in mind?" if you want that information.\
 
 class IntakeState(TypedDict):
     seller_id: str
-    item_id: Optional[str]
+    item_id: str | None
     messages: list[dict]
     reply: str
     complete: bool
@@ -52,7 +52,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
 
     # System message is prepended every call; not stored in state to save space
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}] + list(state["messages"])
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *state["messages"]]
 
     client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
     reply = ""
@@ -74,21 +74,23 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
             break
 
         # Add assistant turn (with tool calls) to history
-        messages.append({
-            "role": "assistant",
-            "content": msg.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in msg.tool_calls
-            ],
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": msg.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in msg.tool_calls
+                ],
+            }
+        )
 
         # Execute every tool in the response; detect conversation-ending ones
-        terminal_reply: Optional[str] = None
+        terminal_reply: str | None = None
 
         for tc in msg.tool_calls:
             tool_input = json.loads(tc.function.arguments)
@@ -100,11 +102,13 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 session=session,
             )
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result_text,
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result_text,
+                }
+            )
 
             if tc.function.name == "request_image":
                 terminal_reply = result_text
