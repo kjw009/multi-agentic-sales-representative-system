@@ -54,7 +54,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     # System message is prepended every call; not stored in state to save space
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *state["messages"]]
 
-    client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+    client = openai.AsyncOpenAI(base_url=settings.endpoint,api_key=settings.openai_api_key)
     reply = ""
     complete = False
     needs_image = False

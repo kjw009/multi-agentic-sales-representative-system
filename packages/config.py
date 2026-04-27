@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
 
     openai_api_key: str = os.getenv("OPENAI_API_KEY")
+    endpoint : str = "https://samtool.openai.azure.com/openai/v1"
     model_agent1: str = "gpt-4.1-nano"
     model_agent4: str = "gpt-4.1-mini"
 
