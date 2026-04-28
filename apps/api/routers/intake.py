@@ -9,6 +9,7 @@ from packages.db.models import ChatMessage, ChatRole, Seller
 from packages.db.session import get_session
 from packages.schemas.intake import MessageRequest, MessageResponse
 
+# APIRouter for intake agent endpoints
 router = APIRouter(prefix="/agent/intake", tags=["intake"])
 
 
@@ -19,6 +20,13 @@ async def intake_message(
     seller: Seller = Depends(get_current_seller),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> MessageResponse:
+    """
+    Handle a message from the seller to the intake agent.
+
+    Processes the message through the intake agent, saves the conversation to the database,
+    and potentially triggers the pricing/publishing pipeline if intake is complete.
+    Returns the agent's response with metadata.
+    """
     # Load history BEFORE saving the current message to avoid double-counting it
     history = await load_history(seller.id, body.item_id, session)
 
@@ -32,7 +40,7 @@ async def intake_message(
     session.add(user_msg)
     await session.flush()
 
-    # Run Agent 1
+    # Run Agent 1 (intake agent) to process the message and generate a response
     reply_text, item_id, needs_image, complete = await run_agent(
         message=body.content,
         seller_id=seller.id,
@@ -55,4 +63,5 @@ async def intake_message(
     if complete and item_id:
         background_tasks.add_task(run_pipeline, seller.id, item_id)
 
+    # Return the response with agent's message and metadata
     return MessageResponse(content=reply_text, item_id=item_id, needs_image=needs_image)

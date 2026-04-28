@@ -1,3 +1,10 @@
+"""
+Tools for the intake agent to interact with sellers and manage item data.
+
+Defines OpenAI function-calling schemas for tools like asking questions,
+recording attributes, requesting images, and marking intake complete.
+Includes execution logic for these tools with database operations.
+"""
 import uuid
 from decimal import Decimal, InvalidOperation
 
@@ -6,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.db.models import Item, ItemCondition, ItemStatus
 
-# OpenAI function-calling schema
+# OpenAI function-calling schema definitions for intake agent tools
 TOOL_DEFINITIONS = [
     {
         "type": "function",
@@ -89,7 +96,10 @@ TOOL_DEFINITIONS = [
     },
 ]
 
+# Fields that should not be modified by the agent (system-managed)
 _PROTECTED = {"id", "seller_id", "status", "created_at", "updated_at"}
+
+# Item fields that are stored as strings
 _STRING_FIELDS = {"name", "brand", "category", "subcategory", "description"}
 
 
@@ -98,10 +108,18 @@ async def _get_or_create_item(
     item_id: uuid.UUID | None,
     session: AsyncSession,
 ) -> Item:
+    """
+    Retrieve an existing item or create a new one for intake.
+
+    If item_id is provided and exists, returns it. Otherwise, creates a new
+    Item with default values and intake_in_progress status.
+    """
     if item_id:
+        # Try to fetch existing item
         item = await session.scalar(select(Item).where(Item.id == item_id))
         if item:
             return item
+    # Create new item with defaults
     item = Item(
         seller_id=seller_id,
         name="",
@@ -124,9 +142,11 @@ async def execute_tool(
     """Execute a tool call. Returns (result_text, updated_item_id)."""
 
     if tool_name == "ask_user_question":
+        # Return the question to ask the user
         return tool_input["question"], item_id
 
     if tool_name == "request_image":
+        # Return the prompt for image upload
         return tool_input["prompt"], item_id
 
     if tool_name == "record_attribute":
@@ -136,23 +156,28 @@ async def execute_tool(
         if field in _PROTECTED:
             return f"Error: cannot set protected field '{field}'", item_id
 
+        # Get or create the item
         item = await _get_or_create_item(seller_id, item_id, session)
 
         if field in _STRING_FIELDS:
+            # Set string field directly
             setattr(item, field, value)
         elif field == "condition":
             try:
+                # Parse and set condition enum
                 item.condition = ItemCondition(value)
             except ValueError:
                 valid = [e.value for e in ItemCondition]
                 return f"Error: invalid condition '{value}'. Must be one of: {valid}", item_id
         elif field == "age_months":
             try:
+                # Parse and set age as integer
                 item.age_months = int(value)
             except ValueError:
                 return "Error: age_months must be a whole number", item_id
         elif field == "seller_floor_price":
             try:
+                # Parse and set price as Decimal
                 item.seller_floor_price = Decimal(value)
             except InvalidOperation:
                 return "Error: seller_floor_price must be a number", item_id
@@ -163,6 +188,7 @@ async def execute_tool(
     if tool_name == "mark_intake_complete":
         if not item_id:
             return "Error: no item in progress to mark complete", item_id
+        # Fetch the item and update status
         item = await session.scalar(select(Item).where(Item.id == item_id))
         if not item:
             return "Error: item not found", item_id

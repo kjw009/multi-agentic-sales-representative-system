@@ -11,17 +11,32 @@ interface Message {
   imageUrl?: string;
 }
 
+/**
+ * Chat page component for interacting with the intake agent.
+ *
+ * Provides a chat interface where sellers can describe items to sell,
+ * upload images, and connect eBay accounts.
+ */
 export default function ChatPage() {
   const router = useRouter();
+  // Chat messages between user and assistant
   const [messages, setMessages] = useState<Message[]>([]);
+  // Current item ID being discussed
   const [itemId, setItemId] = useState<string | null>(null);
+  // User input text
   const [input, setInput] = useState("");
+  // Loading state for message sending
   const [loading, setLoading] = useState(false);
+  // Loading state for image uploading
   const [uploading, setUploading] = useState(false);
+  // Loading state for eBay connection
   const [connectingEbay, setConnectingEbay] = useState(false);
+  // Ref for scrolling to bottom of chat
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Ref for hidden file input
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Check authentication and initialize welcome message
   useEffect(() => {
     if (!localStorage.getItem("token")) {
       router.push("/login");
@@ -33,10 +48,12 @@ export default function ChatPage() {
     }]);
   }, [router]);
 
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Handle eBay OAuth connection
   async function handleConnectEbay() {
     setConnectingEbay(true);
     try {
@@ -48,6 +65,7 @@ export default function ChatPage() {
     }
   }
 
+  // Send a text message to the intake agent
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
     const content = input.trim();
@@ -72,6 +90,7 @@ export default function ChatPage() {
     }
   }
 
+  // Handle image file selection and upload
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !itemId) return;
@@ -99,6 +118,7 @@ export default function ChatPage() {
     }
   }
 
+  // Handle user logout
   function logout() {
     localStorage.clear();
     router.push("/login");
@@ -106,7 +126,7 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen">
-      {/* Sidebar */}
+      {/* Sidebar with app branding and actions */}
       <aside className="w-56 bg-white border-r border-gray-200 flex flex-col p-4 gap-3">
         <p className="font-semibold text-sm">SalesRep</p>
         <div className="flex-1" />
@@ -125,13 +145,14 @@ export default function ChatPage() {
         </button>
       </aside>
 
-      {/* Chat */}
+      {/* Main chat area */}
       <main className="flex-1 flex flex-col">
+        {/* Messages container with auto-scroll */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className="max-w-lg space-y-2">
-                {/* Image preview */}
+                {/* Image preview for uploaded images */}
                 {m.imageUrl && (
                   <div className="flex justify-end">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -143,7 +164,7 @@ export default function ChatPage() {
                   </div>
                 )}
 
-                {/* Text bubble */}
+                {/* Text message bubble */}
                 {m.content && (
                   <div
                     className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
@@ -156,7 +177,7 @@ export default function ChatPage() {
                   </div>
                 )}
 
-                {/* Upload button — shown on the message that requested a photo */}
+                {/* Upload button shown when agent requests an image */}
                 {m.needsImage && (
                   <div className="flex justify-start">
                     <button
@@ -172,6 +193,7 @@ export default function ChatPage() {
             </div>
           ))}
 
+          {/* Loading indicator */}
           {(loading || uploading) && (
             <div className="flex justify-start">
               <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-gray-400">
@@ -182,7 +204,7 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Hidden file input */}
+        {/* Hidden file input for image uploads */}
         <input
           ref={fileRef}
           type="file"
@@ -191,7 +213,7 @@ export default function ChatPage() {
           onChange={handleFileChange}
         />
 
-        {/* Message input */}
+        {/* Message input form */}
         <form
           onSubmit={sendMessage}
           className="border-t border-gray-200 bg-white px-6 py-4 flex gap-3"

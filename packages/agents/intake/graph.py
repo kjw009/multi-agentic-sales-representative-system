@@ -1,3 +1,9 @@
+"""
+LangGraph implementation for the intake agent.
+
+Defines the state machine that processes seller messages, uses OpenAI function calling
+to gather item information through tools, and manages conversation flow until intake is complete.
+"""
 import json
 import uuid
 from typing import TypedDict
@@ -9,6 +15,7 @@ from langgraph.graph import END, StateGraph
 from packages.agents.intake.tools import TOOL_DEFINITIONS, execute_tool
 from packages.config import settings
 
+# System prompt instructing the AI on how to gather item information from sellers
 SYSTEM_PROMPT = """\
 You are an AI assistant helping sellers list second-hand items for sale on eBay.
 
@@ -38,6 +45,7 @@ price in mind?" if you want that information.\
 
 
 class IntakeState(TypedDict):
+    """State dictionary for the intake LangGraph."""
     seller_id: str
     item_id: str | None
     messages: list[dict]
@@ -47,13 +55,21 @@ class IntakeState(TypedDict):
 
 
 async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
+    """
+    Main node function for the intake graph.
+
+    Processes the conversation state by calling OpenAI with tools, executing tool calls,
+    and updating the state until a terminal response is reached or max iterations hit.
+    """
+    # Extract session and IDs from config and state
     session = config["configurable"]["session"]
     seller_id = uuid.UUID(state["seller_id"])
     item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
 
-    # System message is prepended every call; not stored in state to save space
+    # Prepend system message to conversation history
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *state["messages"]]
 
+    # Initialize OpenAI client
     client = openai.AsyncOpenAI(
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url or None,
@@ -62,7 +78,9 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     complete = False
     needs_image = False
 
-    for _ in range(10):  # safety cap on agentic iterations
+    # Loop up to 10 times for agentic tool calling (safety limit)
+    for _ in range(10):
+        # Call OpenAI with current messages and tools
         response = await client.chat.completions.create(
             model=settings.model_agent1,
             messages=messages,
@@ -73,10 +91,11 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
         msg = response.choices[0].message
 
         if not msg.tool_calls:
+            # No tools called, use the response content as final reply
             reply = msg.content or "How can I help you today?"
             break
 
-        # Add assistant turn (with tool calls) to history
+        # Add assistant message with tool calls to history
         messages.append(
             {
                 "role": "assistant",
@@ -92,10 +111,11 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
             }
         )
 
-        # Execute every tool in the response; detect conversation-ending ones
+        # Execute each tool call and add results to messages
         terminal_reply: str | None = None
 
         for tc in msg.tool_calls:
+            # Parse tool arguments and execute
             tool_input = json.loads(tc.function.arguments)
             result_text, item_id = await execute_tool(
                 tool_name=tc.function.name,
@@ -105,6 +125,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 session=session,
             )
 
+            # Add tool result to message history
             messages.append(
                 {
                     "role": "tool",
@@ -113,6 +134,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 }
             )
 
+            # Check for terminal tool calls that end the conversation
             if tc.function.name == "request_image":
                 terminal_reply = result_text
                 needs_image = True
@@ -123,12 +145,14 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 complete = True
 
         if terminal_reply is not None:
+            # Terminal response reached, end the loop
             reply = terminal_reply
             break
 
-    # Strip system message before storing back in state
+    # Remove system message before storing back in state (to save space)
     state_messages = [m for m in messages if m.get("role") != "system"]
 
+    # Return updated state
     return {
         "item_id": str(item_id) if item_id else None,
         "messages": state_messages,
@@ -138,6 +162,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     }
 
 
+# Build the LangGraph: single node that processes intake and ends
 _builder: StateGraph = StateGraph(IntakeState)
 _builder.add_node("intake", intake_node)
 _builder.set_entry_point("intake")
