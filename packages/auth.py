@@ -6,7 +6,6 @@ import jwt
 
 from packages.config import settings
 
-
 # --- PASSWORD HASHING ---
 
 def hash_password(plain: str) -> str:

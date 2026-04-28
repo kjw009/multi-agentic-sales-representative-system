@@ -23,7 +23,6 @@ import json
 import pickle
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import PCA
@@ -36,7 +35,6 @@ _PROCESSED_DIR = _ML_DIR.parent.parent / "datasets" / "processed"
 def build() -> None:
     print("Loading processed datasets...")
     full_df = pd.read_csv(_PROCESSED_DIR / "ebay_full_processed.csv")
-    train_df = pd.read_csv(_PROCESSED_DIR / "ebay_train_processed.csv")
 
     with open(_PROCESSED_DIR / "feature_info.json") as f:
         feature_info = json.load(f)
@@ -80,14 +78,14 @@ def build() -> None:
             "median": float(g["price"].median()),
             "mean": float(g["price"].mean()),
             "std": float(g["price"].std(ddof=1)) if len(g) > 1 else 0.0,
-            "count": int(len(g)),
+            "count": len(g),
         }
 
     global_stats = {
         "median": float(full_df["price"].median()),
         "mean": float(full_df["price"].mean()),
         "std": float(full_df["price"].std(ddof=1)),
-        "count": int(len(full_df)),
+        "count": len(full_df),
     }
 
     # ── 5. Load the v2 XGBRegressor ──────────────────────────────────────────

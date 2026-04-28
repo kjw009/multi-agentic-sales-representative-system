@@ -1,5 +1,4 @@
 import enum
-# UUID: 128-bit unique identifier for distributed-safe primary keys
 import uuid
 from datetime import datetime
 
@@ -20,7 +19,6 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from packages.db.base import Base
-
 
 # --- ENUMS ---
 

@@ -5,7 +5,6 @@ from sqlalchemy import engine_from_config, pool
 # IMPORTANT: ensures all models are imported and registered with Base.metadata
 # Without this, Alembic autogenerate won't detect your tables
 import packages.db.models  # noqa: F401
-
 from alembic import context
 from packages.config import settings
 from packages.db.base import Base
