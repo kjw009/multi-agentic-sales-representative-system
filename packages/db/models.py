@@ -138,6 +138,14 @@ class Item(Base):
     # Minimum acceptable price from seller
     seller_floor_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
 
+    # Pricing agent output (written by Agent 2 after pipeline runs)
+    recommended_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    min_acceptable_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4))
+    price_low: Mapped[float | None] = mapped_column(Numeric(12, 2))   # CI lower bound
+    price_high: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI upper bound
+    pricing_comparables: Mapped[list | None] = mapped_column(JSONB)   # raw comparable listings
+
     # Workflow state machine
     status: Mapped[ItemStatus] = mapped_column(
         Enum(ItemStatus, name="item_status"),
