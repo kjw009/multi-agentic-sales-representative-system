@@ -111,3 +111,4 @@ secrets/
 # Claude Code — local session data only; CLAUDE.md is intentionally committed
 .claude/
 CLAUDE.md
+datasets/marketing_sample_for_ebay_com-ebay_com_product__20210101_20210331__30k_data.csv
