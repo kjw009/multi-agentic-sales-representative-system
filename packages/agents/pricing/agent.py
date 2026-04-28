@@ -87,7 +87,7 @@ def _get_sentence_model():
 # ---------------------------------------------------------------------------
 
 _DEFAULT_FLOOR_RATIO = 0.70
-_MODEL_WEIGHT = 0.20
+_MODEL_WEIGHT = 0.65
 
 # ---------------------------------------------------------------------------
 # Condition → ordinal bucket  (mirrors 02_preprocessing.ipynb Step 3)
