@@ -13,3 +13,4 @@ class MessageResponse(BaseModel):
     content: str
     item_id: uuid.UUID | None = None
     needs_image: bool = False
+    intake_complete: bool = False

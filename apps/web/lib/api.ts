@@ -8,7 +8,6 @@ function token(): string | null {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {};
 
-  // Don't set Content-Type for FormData — browser sets it with the correct boundary
   if (!(init.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
@@ -37,12 +36,32 @@ export interface MessageResponse {
   content: string;
   item_id: string | null;
   needs_image: boolean;
+  intake_complete: boolean;
 }
 
 export interface ImageUploadResponse {
   id: string;
   url: string;
   position: number;
+}
+
+export interface Comparable {
+  title: string;
+  price: number;
+  currency: string;
+  condition: string;
+  item_id: string;
+  listing_url: string;
+}
+
+export interface PricingResult {
+  item_id: string;
+  recommended_price: number;
+  confidence_score: number;
+  min_acceptable_price: number;
+  price_low: number;
+  price_high: number;
+  comparables: Comparable[];
 }
 
 export const api = {
@@ -75,4 +94,8 @@ export const api = {
       { method: "POST", body: form },
     );
   },
+
+  // Returns null while pricing is in progress, PricingResult once complete
+  getPricing: (itemId: string) =>
+    request<PricingResult | null>(`/agent/intake/pricing/${itemId}`),
 };

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, PricingResult } from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";
@@ -11,32 +11,135 @@ interface Message {
   imageUrl?: string;
 }
 
-/**
- * Chat page component for interacting with the intake agent.
- *
- * Provides a chat interface where sellers can describe items to sell,
- * upload images, and connect eBay accounts.
- */
+const POLL_INTERVAL_MS = 3000;
+const MAX_POLL_ATTEMPTS = 40; // 40 × 3s = 2 min max wait
+
+function fmt(n: number) {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+function ConfidenceBar({ score }: { score: number }) {
+  const pct = Math.round(score * 100);
+  const color =
+    pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-400" : "bg-rose-400";
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs text-gray-500">
+        <span>Confidence</span>
+        <span>{pct}%</span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-gray-100">
+        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function PricingPanel({ pricing }: { pricing: PricingResult }) {
+  const hasCI = pricing.price_low > 0 && pricing.price_high > 0;
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 space-y-4 shadow-sm">
+      {/* Headline price */}
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
+          Recommended price
+        </p>
+        <p className="text-3xl font-semibold text-gray-900">
+          {fmt(pricing.recommended_price)}
+        </p>
+        {hasCI && (
+          <p className="text-sm text-gray-500 mt-0.5">
+            Range&nbsp;
+            <span className="text-gray-700 font-medium">{fmt(pricing.price_low)}</span>
+            &nbsp;–&nbsp;
+            <span className="text-gray-700 font-medium">{fmt(pricing.price_high)}</span>
+          </p>
+        )}
+      </div>
+
+      <ConfidenceBar score={pricing.confidence_score} />
+
+      {/* Floor price */}
+      <div className="flex justify-between text-sm">
+        <span className="text-gray-500">Walk-away floor</span>
+        <span className="font-medium text-gray-700">
+          {fmt(pricing.min_acceptable_price)}
+        </span>
+      </div>
+
+      {/* Comparables */}
+      {pricing.comparables.length > 0 && (
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-2">
+            Comparables ({pricing.comparables.length})
+          </p>
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            {pricing.comparables.map((c) => (
+              <a
+                key={c.item_id}
+                href={c.listing_url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-start justify-between gap-3 rounded-xl border border-gray-100 px-3 py-2 hover:bg-gray-50 transition-colors group"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-700 truncate group-hover:text-gray-900">
+                    {c.title}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">{c.condition}</p>
+                </div>
+                <p className="text-sm font-medium text-gray-900 shrink-0">
+                  {fmt(c.price)}
+                </p>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pricing.comparables.length === 0 && (
+        <p className="text-xs text-gray-400 italic">
+          No live comparables — price based on model prediction only.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PricingSpinner() {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 space-y-3 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+        Pricing your item…
+      </p>
+      <div className="flex items-center gap-2">
+        <div className="h-2 w-2 rounded-full bg-gray-300 animate-bounce [animation-delay:0ms]" />
+        <div className="h-2 w-2 rounded-full bg-gray-300 animate-bounce [animation-delay:150ms]" />
+        <div className="h-2 w-2 rounded-full bg-gray-300 animate-bounce [animation-delay:300ms]" />
+      </div>
+      <p className="text-xs text-gray-400">Searching eBay comparables…</p>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const router = useRouter();
-  // Chat messages between user and assistant
   const [messages, setMessages] = useState<Message[]>([]);
-  // Current item ID being discussed
   const [itemId, setItemId] = useState<string | null>(null);
-  // User input text
   const [input, setInput] = useState("");
-  // Loading state for message sending
   const [loading, setLoading] = useState(false);
-  // Loading state for image uploading
   const [uploading, setUploading] = useState(false);
-  // Loading state for eBay connection
   const [connectingEbay, setConnectingEbay] = useState(false);
-  // Ref for scrolling to bottom of chat
+
+  // Pricing state
+  const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
+  const [pricingPending, setPricingPending] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollAttempts = useRef(0);
+
   const bottomRef = useRef<HTMLDivElement>(null);
-  // Ref for hidden file input
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Check authentication and initialize welcome message
   useEffect(() => {
     if (!localStorage.getItem("token")) {
       router.push("/login");
@@ -48,12 +151,38 @@ export default function ChatPage() {
     }]);
   }, [router]);
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Handle eBay OAuth connection
+  // Cleanup polling on unmount
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const startPolling = useCallback((id: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollAttempts.current = 0;
+    setPricingPending(true);
+
+    pollRef.current = setInterval(async () => {
+      pollAttempts.current += 1;
+      if (pollAttempts.current > MAX_POLL_ATTEMPTS) {
+        clearInterval(pollRef.current!);
+        setPricingPending(false);
+        return;
+      }
+      try {
+        const result = await api.getPricing(id);
+        if (result) {
+          clearInterval(pollRef.current!);
+          setPricingPending(false);
+          setPricingResult(result);
+        }
+      } catch {
+        // swallow — keep polling
+      }
+    }, POLL_INTERVAL_MS);
+  }, []);
+
   async function handleConnectEbay() {
     setConnectingEbay(true);
     try {
@@ -65,8 +194,7 @@ export default function ChatPage() {
     }
   }
 
-  // Send a text message to the intake agent
-  async function sendMessage(e: React.FormEvent) {
+  async function sendMessage(e: React.SyntheticEvent) {
     e.preventDefault();
     const content = input.trim();
     if (!content || loading) return;
@@ -82,6 +210,10 @@ export default function ChatPage() {
         ...prev,
         { role: "assistant", content: reply.content, needsImage: reply.needs_image },
       ]);
+      // Intake just finished — start polling for pricing
+      if (reply.intake_complete && reply.item_id) {
+        startPolling(reply.item_id);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error";
       setMessages((prev) => [...prev, { role: "assistant", content: `⚠ ${msg}` }]);
@@ -90,25 +222,25 @@ export default function ChatPage() {
     }
   }
 
-  // Handle image file selection and upload
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !itemId) return;
 
     setUploading(true);
-    // Show local preview immediately
     const localUrl = URL.createObjectURL(file);
     setMessages((prev) => [...prev, { role: "user", content: "", imageUrl: localUrl }]);
 
     try {
       await api.uploadImage(file, itemId);
-      // Tell the agent the image was uploaded so it can continue
       const reply = await api.sendMessage("I've uploaded the image.", itemId);
       if (reply.item_id) setItemId(reply.item_id);
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: reply.content, needsImage: reply.needs_image },
       ]);
+      if (reply.intake_complete && reply.item_id) {
+        startPolling(reply.item_id);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Upload failed";
       setMessages((prev) => [...prev, { role: "assistant", content: `⚠ ${msg}` }]);
@@ -118,16 +250,17 @@ export default function ChatPage() {
     }
   }
 
-  // Handle user logout
   function logout() {
     localStorage.clear();
     router.push("/login");
   }
 
+  const showPricingPanel = pricingResult !== null || pricingPending;
+
   return (
-    <div className="flex h-screen">
-      {/* Sidebar with app branding and actions */}
-      <aside className="w-56 bg-white border-r border-gray-200 flex flex-col p-4 gap-3">
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar */}
+      <aside className="w-56 bg-white border-r border-gray-200 flex flex-col p-4 gap-3 shrink-0">
         <p className="font-semibold text-sm">SalesRep</p>
         <div className="flex-1" />
         <button
@@ -145,14 +278,12 @@ export default function ChatPage() {
         </button>
       </aside>
 
-      {/* Main chat area */}
-      <main className="flex-1 flex flex-col">
-        {/* Messages container with auto-scroll */}
+      {/* Chat */}
+      <main className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className="max-w-lg space-y-2">
-                {/* Image preview for uploaded images */}
                 {m.imageUrl && (
                   <div className="flex justify-end">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -163,8 +294,6 @@ export default function ChatPage() {
                     />
                   </div>
                 )}
-
-                {/* Text message bubble */}
                 {m.content && (
                   <div
                     className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
@@ -176,8 +305,6 @@ export default function ChatPage() {
                     {m.content}
                   </div>
                 )}
-
-                {/* Upload button shown when agent requests an image */}
                 {m.needsImage && (
                   <div className="flex justify-start">
                     <button
@@ -193,7 +320,6 @@ export default function ChatPage() {
             </div>
           ))}
 
-          {/* Loading indicator */}
           {(loading || uploading) && (
             <div className="flex justify-start">
               <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-gray-400">
@@ -204,7 +330,6 @@ export default function ChatPage() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Hidden file input for image uploads */}
         <input
           ref={fileRef}
           type="file"
@@ -213,7 +338,6 @@ export default function ChatPage() {
           onChange={handleFileChange}
         />
 
-        {/* Message input form */}
         <form
           onSubmit={sendMessage}
           className="border-t border-gray-200 bg-white px-6 py-4 flex gap-3"
@@ -233,6 +357,17 @@ export default function ChatPage() {
           </button>
         </form>
       </main>
+
+      {/* Pricing panel — slides in once intake completes */}
+      {showPricingPanel && (
+        <aside className="w-80 shrink-0 bg-gray-50 border-l border-gray-200 p-5 overflow-y-auto">
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-4">
+            Pricing
+          </p>
+          {pricingPending && !pricingResult && <PricingSpinner />}
+          {pricingResult && <PricingPanel pricing={pricingResult} />}
+        </aside>
+      )}
     </div>
   );
 }

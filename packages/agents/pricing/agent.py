@@ -41,6 +41,9 @@ try:
     logger.info("Pricing model loaded from %s", _MODEL_PATH)
 except FileNotFoundError:
     logger.warning("Pricing model not found at %s — falling back to comparable median", _MODEL_PATH)
+except Exception as _e:
+    # ModuleNotFoundError if xgboost isn't installed in this environment yet
+    logger.warning("Could not load pricing model (%s) — falling back to comparable median", _e)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -194,6 +197,20 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
     else:
         recommended = 0.0
 
+    # --- Confidence interval ---
+    if len(prices) >= 2:
+        price_low = float(np.percentile(prices, 25))
+        price_high = float(np.percentile(prices, 75))
+    elif len(prices) == 1:
+        price_low = prices[0] * 0.85
+        price_high = prices[0] * 1.15
+    elif recommended > 0:
+        price_low = recommended * 0.80
+        price_high = recommended * 1.20
+    else:
+        price_low = 0.0
+        price_high = 0.0
+
     # confidence: scales with comparable count; model-only predictions get lower confidence
     if prices:
         confidence = min(len(prices) / 10, 1.0)
@@ -221,5 +238,7 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         recommended_price=round(recommended, 2),
         confidence_score=round(confidence, 2),
         min_acceptable_price=round(floor, 2),
+        price_low=round(price_low, 2),
+        price_high=round(price_high, 2),
         comparables=comparables,
     )
