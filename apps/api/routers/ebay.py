@@ -25,6 +25,7 @@ router = APIRouter(prefix="/auth/ebay", tags=["ebay-oauth"])
 # Time-to-live for OAuth state nonce in Redis (10 minutes)
 _STATE_TTL = 600  # seconds — how long the state nonce lives in Redis
 
+
 def _redis():
     """
     Helper function to create an async Redis client.

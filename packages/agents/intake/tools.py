@@ -5,6 +5,7 @@ Defines OpenAI function-calling schemas for tools like asking questions,
 recording attributes, requesting images, and marking intake complete.
 Includes execution logic for these tools with database operations.
 """
+
 import uuid
 from decimal import Decimal, InvalidOperation
 

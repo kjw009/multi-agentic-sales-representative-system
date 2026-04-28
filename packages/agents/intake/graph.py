@@ -4,6 +4,7 @@ LangGraph implementation for the intake agent.
 Defines the state machine that processes seller messages, uses OpenAI function calling
 to gather item information through tools, and manages conversation flow until intake is complete.
 """
+
 import json
 import logging
 import uuid
@@ -51,6 +52,7 @@ price in mind?" if you want that information.\
 
 class IntakeState(TypedDict):
     """State dictionary for the intake LangGraph."""
+
     seller_id: str
     item_id: str | None
     messages: list[dict]
@@ -204,7 +206,9 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                     session=session,
                 )
             except Exception:
-                logger.exception("Intake tool execution failed", extra={"tool_name": tc.function.name})
+                logger.exception(
+                    "Intake tool execution failed", extra={"tool_name": tc.function.name}
+                )
                 reply = (
                     "I hit a temporary problem saving that. "
                     "Please send it once more and I'll continue from here."
@@ -236,7 +240,9 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
             reply = terminal_reply
             break
 
-        planned_reply, planned_needs_image, planned_complete = await _plan_next_step(session, item_id)
+        planned_reply, planned_needs_image, planned_complete = await _plan_next_step(
+            session, item_id
+        )
         if planned_reply is not None:
             reply = planned_reply
             needs_image = planned_needs_image

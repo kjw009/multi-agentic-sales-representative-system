@@ -4,6 +4,7 @@ Storage utilities for uploading images to S3-compatible storage (MinIO).
 Provides functions to upload image data to cloud storage with proper content types
 and generate public URLs for access.
 """
+
 import asyncio
 import uuid
 from pathlib import Path

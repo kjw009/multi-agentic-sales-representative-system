@@ -42,6 +42,7 @@ _BROWSE_SCOPE = "https://api.ebay.com/oauth/api_scope"
 @dataclass
 class Comparable:
     """Represents a comparable item found on eBay."""
+
     title: str
     price: float
     currency: str

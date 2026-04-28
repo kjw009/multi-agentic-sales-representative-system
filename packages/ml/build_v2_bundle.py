@@ -62,9 +62,7 @@ def build() -> None:
     category_encoder: dict[str, float] = (
         full_df.groupby("category")["category_encoded"].mean().to_dict()
     )
-    brand_encoder: dict[str, float] = (
-        full_df.groupby("brand")["brand_encoded"].mean().to_dict()
-    )
+    brand_encoder: dict[str, float] = full_df.groupby("brand")["brand_encoded"].mean().to_dict()
 
     global_category_mean = float(full_df["category_encoded"].mean())
     global_brand_mean = float(full_df["brand_encoded"].mean())

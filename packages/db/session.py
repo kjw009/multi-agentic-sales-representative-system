@@ -4,6 +4,7 @@ Database session management for the application.
 Provides async SQLAlchemy engine, session factory, and utilities for managing
 database connections and Row Level Security (RLS) context.
 """
+
 import uuid
 from collections.abc import AsyncIterator
 

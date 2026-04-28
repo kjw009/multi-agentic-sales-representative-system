@@ -80,18 +80,14 @@ async def get_pricing(
 
     Returns null (204) while pricing is still in progress.
     """
-    item = await session.scalar(
-        select(Item).where(Item.id == item_id, Item.seller_id == seller.id)
-    )
+    item = await session.scalar(select(Item).where(Item.id == item_id, Item.seller_id == seller.id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     if item.recommended_price is None:
         return None
 
-    comparables = [
-        ComparableListing(**c) for c in (item.pricing_comparables or [])
-    ]
+    comparables = [ComparableListing(**c) for c in (item.pricing_comparables or [])]
 
     return PricingResult(
         item_id=item.id,

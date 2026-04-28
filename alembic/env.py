@@ -33,6 +33,7 @@ target_metadata = Base.metadata
 
 # --- OFFLINE MIGRATIONS ---
 
+
 def run_migrations_offline() -> None:
     """
     Run migrations without a live database connection.
@@ -48,10 +49,8 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
-
         # Render bound values directly into SQL
         literal_binds=True,
-
         # Use named parameters (better readability in generated SQL)
         dialect_opts={"paramstyle": "named"},
     )
@@ -62,6 +61,7 @@ def run_migrations_offline() -> None:
 
 
 # --- ONLINE MIGRATIONS ---
+
 
 def run_migrations_online() -> None:
     """
@@ -74,14 +74,12 @@ def run_migrations_online() -> None:
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
-
         # Disable connection pooling (recommended for migrations)
         poolclass=pool.NullPool,
     )
 
     # Establish DB connection
     with connectable.connect() as connection:
-
         # Bind Alembic to this connection and metadata
         context.configure(
             connection=connection,

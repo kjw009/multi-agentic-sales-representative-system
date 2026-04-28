@@ -22,6 +22,7 @@ from packages.db.base import Base
 
 # --- ENUMS ---
 
+
 class ItemCondition(enum.StrEnum):
     # Standardized condition grading for resale items
     new = "new"
@@ -33,15 +34,15 @@ class ItemCondition(enum.StrEnum):
 
 class ItemStatus(enum.StrEnum):
     # Item lifecycle through ingestion → listing → sale
-    pending = "pending"                     # Created, not processed
+    pending = "pending"  # Created, not processed
     intake_in_progress = "intake_in_progress"  # Metadata/images being prepared
-    intake_complete = "intake_complete"     # Ready for pricing
-    priced = "priced"                       # Price assigned
-    publishing = "publishing"               # Being pushed to marketplace
-    live = "live"                           # Visible for sale
-    sold = "sold"                           # Completed sale
-    removed = "removed"                     # Withdrawn or deleted
-    error = "error"                         # Failure state
+    intake_complete = "intake_complete"  # Ready for pricing
+    priced = "priced"  # Price assigned
+    publishing = "publishing"  # Being pushed to marketplace
+    live = "live"  # Visible for sale
+    sold = "sold"  # Completed sale
+    removed = "removed"  # Withdrawn or deleted
+    error = "error"  # Failure state
 
 
 class ChatRole(enum.StrEnum):
@@ -56,6 +57,7 @@ class Platform(enum.StrEnum):
 
 
 # --- MODELS ---
+
 
 class Seller(Base):
     __tablename__ = "sellers"
@@ -140,9 +142,9 @@ class Item(Base):
     recommended_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
     min_acceptable_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
     confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4))
-    price_low: Mapped[float | None] = mapped_column(Numeric(12, 2))   # CI lower bound
+    price_low: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI lower bound
     price_high: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI upper bound
-    pricing_comparables: Mapped[list | None] = mapped_column(JSONB)   # raw comparable listings
+    pricing_comparables: Mapped[list | None] = mapped_column(JSONB)  # raw comparable listings
 
     # Workflow state machine
     status: Mapped[ItemStatus] = mapped_column(
@@ -200,7 +202,7 @@ class ItemImage(Base):
 
     # Storage references (e.g. S3)
     s3_key: Mapped[str] = mapped_column(String(1024), nullable=False)  # Internal storage key
-    url: Mapped[str] = mapped_column(String(2048), nullable=False)     # Public access URL
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)  # Public access URL
 
     # Ordering (0 = primary image)
     position: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)

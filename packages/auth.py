@@ -8,6 +8,7 @@ from packages.config import settings
 
 # --- PASSWORD HASHING ---
 
+
 def hash_password(plain: str) -> str:
     """
     Hash a plaintext password using bcrypt.
@@ -31,6 +32,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # --- JWT TOKEN CREATION ---
 
+
 def create_access_token(seller_id: uuid.UUID) -> str:
     """
     Create a signed JWT access token.
@@ -46,9 +48,8 @@ def create_access_token(seller_id: uuid.UUID) -> str:
     payload = {
         "sub": str(seller_id),  # JWT standard: subject identifier
         "iat": datetime.now(UTC),  # timezone-aware timestamp (important)
-        "exp": datetime.now(UTC) + timedelta(
-            minutes=settings.jwt_access_token_expire_minutes
-        ),  # expiration time
+        "exp": datetime.now(UTC)
+        + timedelta(minutes=settings.jwt_access_token_expire_minutes),  # expiration time
     }
 
     # Encodes and signs the JWT
@@ -60,6 +61,7 @@ def create_access_token(seller_id: uuid.UUID) -> str:
 
 
 # --- JWT TOKEN VALIDATION ---
+
 
 def decode_access_token(token: str) -> uuid.UUID:
     """
