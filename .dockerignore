@@ -31,9 +31,9 @@ packages/ml/pricing_model_v2_bundle_nopca.pkl
 .gitignore
 .gitattributes
 
-# Docs
-*.md
+# Docs (README.md must stay — hatchling reads it during editable install)
 implementation_plan.md
+CLAUDE.md
 
 # Local env files (secrets must come from runtime env, not baked into image)
 .env
