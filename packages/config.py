@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     ebay_client_secret: str = ""
     ebay_env: str = "sandbox"
     ebay_redirect_uri: str = "http://localhost:8000/auth/ebay/callback"
+    ebay_marketplace_id: str = "EBAY_GB"
 
 
 @lru_cache
