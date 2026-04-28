@@ -3537,8 +3537,10 @@ dependencies = [
     { name = "python-multipart" },
     { name = "redis" },
     { name = "scikit-learn" },
+    { name = "sentence-transformers" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
+    { name = "transformers" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "xgboost" },
 ]
@@ -3559,9 +3561,7 @@ ml = [
     { name = "xgboost" },
 ]
 nlp = [
-    { name = "sentence-transformers" },
     { name = "spacy" },
-    { name = "transformers" },
 ]
 scraping = [
     { name = "playwright" },
@@ -3608,11 +3608,11 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.8.0" },
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.5" },
     { name = "scrapy", marker = "extra == 'scraping'", specifier = ">=2.11" },
-    { name = "sentence-transformers", marker = "extra == 'nlp'", specifier = ">=3.3" },
+    { name = "sentence-transformers", specifier = ">=3.3" },
     { name = "spacy", marker = "extra == 'nlp'", specifier = ">=3.8" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "structlog", specifier = ">=24.4" },
-    { name = "transformers", marker = "extra == 'nlp'", specifier = ">=4.46" },
+    { name = "transformers", specifier = ">=4.46" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
     { name = "xgboost", specifier = ">=3.2.0" },
     { name = "xgboost", marker = "extra == 'ml'", specifier = ">=2.1" },

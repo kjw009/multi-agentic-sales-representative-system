@@ -16,6 +16,7 @@ import os
 import pickle
 import statistics
 import uuid
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -50,17 +51,34 @@ except Exception as _e:
 # this agent moves to its own Celery pool; precomputing embeddings in Agent 1
 # and storing them in Item.attributes is the long-term decoupled approach.
 _ST_MODEL = None
+_ST_MODEL_LOAD_ATTEMPTED = False
 
 
 def _get_sentence_model():
     global _ST_MODEL
-    if _ST_MODEL is None and _BUNDLE is not None:
-        try:
-            os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-            from sentence_transformers import SentenceTransformer
-            _ST_MODEL = SentenceTransformer(_BUNDLE["sentence_model_name"])
-        except Exception as e:
-            logger.warning("Could not load SentenceTransformer: %s", e)
+    global _ST_MODEL_LOAD_ATTEMPTED
+
+    if _ST_MODEL_LOAD_ATTEMPTED or _BUNDLE is None:
+        return _ST_MODEL
+
+    _ST_MODEL_LOAD_ATTEMPTED = True
+
+    if find_spec("sentence_transformers") is None:
+        raise RuntimeError(
+            "sentence-transformers is required for Agent 2 pricing but is not installed. "
+            "Reinstall dependencies so the pricing runtime includes SentenceTransformer."
+        )
+
+    try:
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+        from sentence_transformers import SentenceTransformer
+
+        _ST_MODEL = SentenceTransformer(_BUNDLE["sentence_model_name"])
+    except Exception as e:
+        raise RuntimeError(
+            "Agent 2 pricing could not initialize SentenceTransformer. "
+            "The pricing model requires this embedding model to run."
+        ) from e
     return _ST_MODEL
 
 
@@ -206,8 +224,6 @@ def _model_predict(item: Item) -> float | None:
     if _BUNDLE is None:
         return None
     st_model = _get_sentence_model()
-    if st_model is None:
-        return None
 
     try:
         bundle = _BUNDLE

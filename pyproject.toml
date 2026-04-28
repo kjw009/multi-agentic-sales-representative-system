@@ -41,6 +41,8 @@ dependencies = [
   "boto3>=1.35",
   "xgboost>=3.2.0",
   "scikit-learn>=1.8.0",
+  "sentence-transformers>=3.3",
+  "transformers>=4.46",
 ]
 
 [project.optional-dependencies]
@@ -52,8 +54,6 @@ ml = [
 ]
 nlp = [
   "spacy>=3.8",
-  "sentence-transformers>=3.3",
-  "transformers>=4.46",
 ]
 scraping = [
   "scrapy>=2.11",
