@@ -19,7 +19,6 @@ import uuid
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -235,8 +234,7 @@ def _model_predict(item: Item) -> float | None:
         raw_vals[_SCALER_IDX["group_std_price"]]        = stats["std"]
         raw_vals[_EMB_START: _EMB_START + 16]           = list(emb_pca[0])
 
-        raw_df = pd.DataFrame([raw_vals], columns=bundle["scaler_features"])
-        scaled = bundle["scaler"].transform(raw_df)  # (1, 22)
+        scaled = bundle["scaler"].transform(np.array([raw_vals], dtype=float))  # (1, 22)
 
         # ── 4. Build the full 26-feature dict ─────────────────────────────
         feat: dict[str, float] = {}
