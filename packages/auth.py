@@ -48,7 +48,7 @@ def create_access_token(seller_id: uuid.UUID) -> str:
         "sub": str(seller_id),  # JWT standard: subject identifier
         "iat": datetime.now(UTC),  # timezone-aware timestamp (important)
         "exp": datetime.now(UTC) + timedelta(
-            minutes=settings.jwt_expiry_minutes
+            minutes=settings.jwt_access_token_expire_minutes
         ),  # expiration time
     }
 
