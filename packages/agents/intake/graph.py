@@ -5,15 +5,20 @@ Defines the state machine that processes seller messages, uses OpenAI function c
 to gather item information through tools, and manages conversation flow until intake is complete.
 """
 import json
+import logging
 import uuid
 from typing import TypedDict
 
 import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
+from sqlalchemy import func, select
 
 from packages.agents.intake.tools import TOOL_DEFINITIONS, execute_tool
 from packages.config import settings
+from packages.db.models import Item, ItemCondition, ItemImage, ItemStatus
+
+logger = logging.getLogger(__name__)
 
 # System prompt instructing the AI on how to gather item information from sellers
 SYSTEM_PROMPT = """\
@@ -54,6 +59,55 @@ class IntakeState(TypedDict):
     needs_image: bool
 
 
+def _missing_fields(item: Item) -> list[str]:
+    missing: list[str] = []
+    if not (item.name or "").strip():
+        missing.append("name")
+    if not (item.category or "").strip():
+        missing.append("category")
+    if item.condition not in set(ItemCondition):
+        missing.append("condition")
+    if not (item.description or "").strip():
+        missing.append("description")
+    return missing
+
+
+async def _plan_next_step(session, item_id: uuid.UUID | None) -> tuple[str | None, bool, bool]:
+    if item_id is None:
+        return None, False, False
+
+    item = await session.scalar(select(Item).where(Item.id == item_id))
+    if item is None:
+        return "I couldn't find the item we were discussing. Please try that again.", False, False
+
+    missing = _missing_fields(item)
+    if missing:
+        prompts = {
+            "name": "What is the item name?",
+            "category": "Which category does it belong to? For example: Laptops, Trainers, or Coffee Tables.",
+            "condition": "What is the condition? Choose from: new, like_new, good, fair, or poor.",
+            "description": "Please give me a short 2-3 sentence description of the item and its condition.",
+        }
+        return prompts[missing[0]], False, False
+
+    image_count = await session.scalar(
+        select(func.count()).select_from(ItemImage).where(ItemImage.item_id == item_id)
+    )
+    has_image = bool(image_count)
+
+    if not has_image:
+        return (
+            "Please upload clear photos of the item: exterior, screen, any wear or marks, "
+            "and the charger or accessories if you have them.",
+            True,
+            False,
+        )
+
+    item.status = ItemStatus.intake_complete
+    await session.flush()
+    return "Great — I have everything I need to prepare your listing!", False, True
+
+
 async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     """
     Main node function for the intake graph.
@@ -81,12 +135,20 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     # Loop up to 10 times for agentic tool calling (safety limit)
     for _ in range(10):
         # Call OpenAI with current messages and tools
-        response = await client.chat.completions.create(
-            model=settings.model_agent1,
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            tool_choice="auto",
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=settings.model_agent1,
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+                tool_choice="auto",
+            )
+        except Exception:
+            logger.exception("Intake model call failed")
+            reply = (
+                "I hit a temporary problem while processing that. "
+                "Please send that again and we'll continue."
+            )
+            break
 
         msg = response.choices[0].message
 
@@ -116,14 +178,39 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
 
         for tc in msg.tool_calls:
             # Parse tool arguments and execute
-            tool_input = json.loads(tc.function.arguments)
-            result_text, item_id = await execute_tool(
-                tool_name=tc.function.name,
-                tool_input=tool_input,
-                seller_id=seller_id,
-                item_id=item_id,
-                session=session,
-            )
+            try:
+                tool_input = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Intake tool arguments were not valid JSON",
+                    extra={
+                        "tool_name": tc.function.name,
+                        "tool_arguments": tc.function.arguments,
+                    },
+                )
+                reply = (
+                    "I had trouble understanding that detail. "
+                    "Could you rephrase it in one short sentence?"
+                )
+                terminal_reply = reply
+                break
+
+            try:
+                result_text, item_id = await execute_tool(
+                    tool_name=tc.function.name,
+                    tool_input=tool_input,
+                    seller_id=seller_id,
+                    item_id=item_id,
+                    session=session,
+                )
+            except Exception:
+                logger.exception("Intake tool execution failed", extra={"tool_name": tc.function.name})
+                reply = (
+                    "I hit a temporary problem saving that. "
+                    "Please send it once more and I'll continue from here."
+                )
+                terminal_reply = reply
+                break
 
             # Add tool result to message history
             messages.append(
@@ -148,6 +235,16 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
             # Terminal response reached, end the loop
             reply = terminal_reply
             break
+
+        planned_reply, planned_needs_image, planned_complete = await _plan_next_step(session, item_id)
+        if planned_reply is not None:
+            reply = planned_reply
+            needs_image = planned_needs_image
+            complete = planned_complete
+            break
+
+    if not reply:
+        reply = "Could you tell me a little more about the item?"
 
     # Remove system message before storing back in state (to save space)
     state_messages = [m for m in messages if m.get("role") != "system"]
