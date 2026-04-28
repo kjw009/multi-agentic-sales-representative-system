@@ -1,0 +1,46 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Dev tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Notebooks & training data (not needed at runtime)
+notebooks/
+datasets/
+
+# ML model artifacts — only the bundle used by the API is needed
+packages/ml/pricing_model.pkl
+packages/ml/pricing_model_v2.pkl
+packages/ml/pca_v2.pkl
+packages/ml/pricing_model_v2_bundle_nopca.pkl
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docs
+*.md
+implementation_plan.md
+
+# Local env files (secrets must come from runtime env, not baked into image)
+.env
+.env.*
+
+# Celery beat schedule (runtime state, not build artefact)
+celerybeat-schedule
+
+# macOS
+.DS_Store
