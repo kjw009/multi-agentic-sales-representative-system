@@ -13,9 +13,11 @@ from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
+from sqlalchemy import select
 
 from packages.agents.pricing.agent import run as run_pricing
 from packages.agents.publisher.agent import run as run_publisher
+from packages.db.models import Item, ItemStatus
 
 
 class PipelineState(TypedDict):
@@ -35,6 +37,21 @@ async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict:
 
     try:
         result = await run_pricing(item_id=item_id, seller_id=seller_id, session=session)
+
+        # Persist pricing result onto the Item row so the UI can poll for it
+        item = await session.scalar(
+            select(Item).where(Item.id == item_id, Item.seller_id == seller_id)
+        )
+        if item:
+            item.recommended_price = result.recommended_price
+            item.min_acceptable_price = result.min_acceptable_price
+            item.confidence_score = result.confidence_score
+            item.price_low = result.price_low
+            item.price_high = result.price_high
+            item.pricing_comparables = [c.model_dump() for c in result.comparables]
+            item.status = ItemStatus.priced
+            await session.commit()
+
         return {
             "recommended_price": result.recommended_price,
             "confidence_score": result.confidence_score,

@@ -28,17 +28,19 @@ class Settings(BaseSettings):
     model_agent1: str = "gpt-5-nano-1"
     model_agent4: str = "gpt-4.1-mini"
 
-    jwt_secret_key: str = "change-me-in-production"
+    jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
-    jwt_expiry_minutes: int = 60 * 24 * 7  # 7 days
+    jwt_access_token_expire_minutes: int = 30
+    jwt_refresh_token_expire_days: int = 7
 
     # base64url-encoded 32-byte key; generate with: python -c "import secrets,base64; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
     token_encryption_key: str = ""
 
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
-    ebay_env: str = "sandbox"
+    ebay_env: str = "production"
     ebay_redirect_uri: str = "http://localhost:8000/auth/ebay/callback"
+    ebay_marketplace_id: str = "EBAY_GB"
 
 
 @lru_cache

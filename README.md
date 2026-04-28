@@ -66,6 +66,6 @@ make migration msg="add items table"    # autogenerate a revision
 
 ```
 make install-ml    # XGBoost, scikit-learn, pandas, numpy    (Phase 2)
-make install-nlp   # spaCy, transformers, sentence-transformers (Phase 4)
+make install-nlp   # spaCy only; pricing model deps are part of the base install
 uv sync --extra scraping   # Scrapy, Playwright              (Phase 2/5)
 ```

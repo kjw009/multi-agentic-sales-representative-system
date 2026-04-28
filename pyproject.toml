@@ -39,6 +39,10 @@ dependencies = [
   "structlog>=24.4",
   "python-multipart>=0.0.12",
   "boto3>=1.35",
+  "xgboost>=3.2.0",
+  "scikit-learn>=1.8.0",
+  "sentence-transformers>=3.3",
+  "transformers>=4.46",
 ]
 
 [project.optional-dependencies]
@@ -50,8 +54,6 @@ ml = [
 ]
 nlp = [
   "spacy>=3.8",
-  "sentence-transformers>=3.3",
-  "transformers>=4.46",
 ]
 scraping = [
   "scrapy>=2.11",
@@ -77,6 +79,7 @@ addopts = "-ra --strict-markers"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["notebooks/*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
@@ -86,3 +89,11 @@ ignore = ["E501"]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.10.9",
+    "nbconvert>=7.17.1",
+    "pyarrow>=24.0.0",
+    "seaborn>=0.13.2",
+]
