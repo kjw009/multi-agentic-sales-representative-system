@@ -34,7 +34,7 @@ def register(task_name: str) -> Callable:
     return decorator
 
 
-def _process(sqs_client: object, msg: dict) -> None:
+def _process(msg: dict) -> None:
     body = json.loads(msg["Body"])
     task_name = body.get("task")
     kwargs = body.get("kwargs", {})
@@ -59,7 +59,7 @@ def run() -> None:
 
     running = True
 
-    def _stop(sig: int, frame: object) -> None:
+    def _stop(sig: int, _frame: object) -> None:
         nonlocal running
         logger.info("Received signal %s — shutting down", sig)
         running = False
@@ -78,7 +78,7 @@ def run() -> None:
             for msg in response.get("Messages", []):
                 receipt = msg["ReceiptHandle"]
                 try:
-                    _process(sqs, msg)
+                    _process(msg)
                     sqs.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt)
                 except Exception:
                     logger.exception("Failed to process message %s", msg.get("MessageId"))
