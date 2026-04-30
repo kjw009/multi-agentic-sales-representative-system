@@ -1,4 +1,4 @@
-.PHONY: help up down logs ps install install-ml install-nlp test fmt lint migrate migration shell-api shell-db
+.PHONY: help up down logs ps install install-ml install-nlp test fmt lint migrate migration shell-api shell-db worker
 
 help:
 	@echo "Stack:"
@@ -19,6 +19,9 @@ help:
 	@echo "  make migrate                      apply all migrations"
 	@echo "  make migration msg=\"...\"         autogenerate a new revision"
 	@echo "  make shell-db                    psql into the running container"
+	@echo ""
+	@echo "Workers:"
+	@echo "  make worker       run SQS worker locally (needs SQS_QUEUE_URL in .env)"
 	@echo ""
 	@echo "Containers:"
 	@echo "  make shell-api    bash inside the api container"
@@ -60,6 +63,9 @@ migrate:
 migration:
 	@test -n "$(msg)" || (echo "usage: make migration msg=\"describe the change\"" && exit 1)
 	uv run alembic revision --autogenerate -m "$(msg)"
+
+worker:
+	uv run python -m workers.sqs_worker
 
 shell-api:
 	docker compose exec api bash
