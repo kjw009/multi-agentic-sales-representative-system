@@ -59,7 +59,7 @@ def run() -> None:
 
     running = True
 
-    def _stop(sig: int, _frame: object) -> None:
+    def _stop(sig: int, _: object) -> None:
         nonlocal running
         logger.info("Received signal %s — shutting down", sig)
         running = False
