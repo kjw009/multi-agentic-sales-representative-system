@@ -7,6 +7,7 @@ which allows finding comparable items for pricing purposes without requiring sel
 
 import asyncio
 import base64
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -109,9 +110,14 @@ async def search_comparables(
     token = await _get_app_token()
     base_url = _BROWSE_BASE[settings.ebay_env]
 
+    # Shorten query: strip parentheticals and limit to 6 words so eBay returns
+    # actual product matches rather than accessories or 0 results.
+    query = re.sub(r"\(.*?\)", "", name).strip()
+    query = " ".join(query.split()[:6])
+
     # Build search parameters
     params: dict[str, str | int] = {
-        "q": name,
+        "q": query,
         "limit": min(limit, 200),  # API limit is 200
         "sort": "price",
     }
