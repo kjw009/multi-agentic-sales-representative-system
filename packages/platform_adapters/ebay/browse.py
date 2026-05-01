@@ -116,10 +116,6 @@ async def search_comparables(
         "sort": "price",
     }
 
-    # Add condition filter if specified
-    if condition and condition in _CONDITION_ID_MAP:
-        params["filter"] = f"conditionIds:{{{_CONDITION_ID_MAP[condition]}}}"
-
     # Make API request to search for items
     async with httpx.AsyncClient() as client:
         r = await client.get(
