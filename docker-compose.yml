@@ -48,6 +48,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file: .env
     command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-salesrep}:${POSTGRES_PASSWORD:-salesrep}@postgres:5432/${POSTGRES_DB:-salesrep}
@@ -59,6 +60,9 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
+      SQS_REGION: ${SQS_REGION:-us-east-1}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
     ports:
       - "8000:8000"
     volumes:
@@ -69,34 +73,22 @@ services:
       redis:
         condition: service_healthy
 
-  celery-worker:
+  # SQS worker — only started in AWS (not local dev).
+  # In production: docker compose --profile worker up -d
+  sqs-worker:
+    profiles: ["worker"]
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A workers.celery_app worker --loglevel=info
+    command: uv run python -m workers.sqs_worker
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-salesrep}:${POSTGRES_PASSWORD:-salesrep}@postgres:5432/${POSTGRES_DB:-salesrep}
-      REDIS_URL: redis://redis:6379/0
-    volumes:
-      - .:/app
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      SQS_REGION: ${SQS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  celery-beat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: celery -A workers.celery_app beat --loglevel=info
-    environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-salesrep}:${POSTGRES_PASSWORD:-salesrep}@postgres:5432/${POSTGRES_DB:-salesrep}
-      REDIS_URL: redis://redis:6379/0
-    volumes:
-      - .:/app
-    depends_on:
-      redis:
         condition: service_healthy
 
 volumes:
