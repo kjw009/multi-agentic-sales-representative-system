@@ -15,7 +15,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     database_url: str = "postgresql+asyncpg://salesrep:salesrep@localhost:5432/salesrep"
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = "redis://localhost:6379/0"  # used for short-lived caching (OAuth state); use ElastiCache in prod
+
+    sqs_queue_url: str = ""
+    sqs_region: str = "us-east-1"
+    internal_api_key: str = ""  # shared secret for EventBridge Scheduler → /internal/* endpoints
 
     s3_endpoint_url: str = "http://localhost:9000"
     s3_access_key: str = "minioadmin"

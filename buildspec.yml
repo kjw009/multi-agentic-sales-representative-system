@@ -1,0 +1,42 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - |
+        aws ssm send-command \
+          --region $AWS_REGION \
+          --instance-ids $EC2_INSTANCE_ID \
+          --document-name "AWS-RunShellScript" \
+          --parameters '{"commands":[
+            "cd /home/ubuntu/multi-agentic-sales-representative-system",
+            "git pull origin main",
+            "sudo docker compose up -d --no-build",
+            "sudo docker compose build api",
+            "sudo docker compose up -d"
+          ]}' \
+          --output text \
+          --query "Command.CommandId" > /tmp/cmd_id.txt
+      - CMD_ID=$(cat /tmp/cmd_id.txt)
+      - echo "SSM command $CMD_ID dispatched"
+      - |
+        for i in $(seq 1 30); do
+          STATUS=$(aws ssm get-command-invocation \
+            --region $AWS_REGION \
+            --command-id $CMD_ID \
+            --instance-id $EC2_INSTANCE_ID \
+            --query "Status" --output text 2>/dev/null || echo "Pending")
+          echo "[$i/30] $STATUS"
+          if [ "$STATUS" = "Success" ]; then exit 0; fi
+          if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ]; then
+            aws ssm get-command-invocation \
+              --region $AWS_REGION \
+              --command-id $CMD_ID \
+              --instance-id $EC2_INSTANCE_ID \
+              --query "StandardErrorContent" --output text
+            exit 1
+          fi
+          sleep 10
+        done
+        echo "Timed out waiting for deploy"
+        exit 1
