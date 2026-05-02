@@ -13,6 +13,7 @@ from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
+from langsmith import traceable
 from sqlalchemy import select
 
 from packages.agents.pricing.agent import run as run_pricing
@@ -30,6 +31,7 @@ class PipelineState(TypedDict):
     error: str | None
 
 
+@traceable(name="pipeline_pricing_node", run_type="chain")
 async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict:
     session = config["configurable"]["session"]
     item_id = uuid.UUID(state["item_id"])
@@ -60,6 +62,7 @@ async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict:
         return {"error": f"Pricing failed: {exc}"}
 
 
+@traceable(name="pipeline_publisher_node", run_type="chain")
 async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict:
     if state.get("error"):
         return {}
@@ -95,6 +98,7 @@ _builder.add_edge("publisher", END)
 pipeline = _builder.compile()
 
 
+@traceable(name="listing_pipeline", run_type="chain")
 async def run_pipeline(seller_id: uuid.UUID, item_id: uuid.UUID) -> None:
     """Entry point called after intake completes. Creates its own DB session."""
     from packages.db.session import SessionLocal
@@ -110,5 +114,8 @@ async def run_pipeline(seller_id: uuid.UUID, item_id: uuid.UUID) -> None:
                 "listing_url": None,
                 "error": None,
             },
-            config={"configurable": {"session": session}},
+            config={
+                "configurable": {"session": session},
+                "run_name": f"listing_pipeline_{item_id}",
+            },
         )

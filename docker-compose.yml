@@ -63,6 +63,9 @@ services:
       SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
       SQS_REGION: ${SQS_REGION:-us-east-1}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-salesrep}
     ports:
       - "8000:8000"
     volumes:
@@ -87,6 +90,9 @@ services:
       SQS_REGION: ${SQS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-salesrep}
     depends_on:
       postgres:
         condition: service_healthy
