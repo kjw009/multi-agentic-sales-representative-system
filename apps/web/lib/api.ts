@@ -64,6 +64,11 @@ export interface PricingResult {
   comparables: Comparable[];
 }
 
+export interface EbayStatusResponse {
+  connected: boolean;
+  expires_at: string | null;
+}
+
 export const api = {
   signup: (email: string, password: string) =>
     request<TokenResponse>("/auth/signup", {
@@ -79,6 +84,9 @@ export const api = {
 
   ebayConnect: () =>
     request<{ authorization_url: string }>("/auth/ebay/connect"),
+
+  ebayStatus: () =>
+    request<EbayStatusResponse>("/auth/ebay/status"),
 
   sendMessage: (content: string, itemId?: string | null) =>
     request<MessageResponse>("/agent/intake/message", {
