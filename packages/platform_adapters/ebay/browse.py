@@ -101,6 +101,44 @@ async def _get_app_token() -> str:
         return _app_token
 
 
+async def get_category_id(title: str) -> str | None:
+    """Return the eBay category ID for an item by searching production Browse API.
+
+    Searches with the item title and extracts the category ID from the first result.
+    Used as a fallback when the Taxonomy API is unavailable (e.g. sandbox).
+    """
+    try:
+        token = await _get_app_token()
+        base_url = _BROWSE_BASE[settings.ebay_browse_env]
+        query = re.sub(r"\(.*?\)", "", title).strip()
+        query = " ".join(query.split()[:6])
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(
+                f"{base_url}/item_summary/search",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-EBAY-C-MARKETPLACE-ID": settings.ebay_marketplace_id,
+                },
+                params={"q": query, "limit": 1},
+            )
+            r.raise_for_status()
+            data = r.json()
+        items = data.get("itemSummaries", [])
+        if items:
+            cats = items[0].get("categories", [])
+            if cats:
+                cat_id = cats[0].get("categoryId")
+                cat_name = cats[0].get("categoryName", "")
+                import logging
+                logging.getLogger(__name__).info(
+                    "Browse API category lookup: %s (%s)", cat_name, cat_id
+                )
+                return cat_id
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 async def search_comparables(
     name: str,
     condition: str | None = None,
