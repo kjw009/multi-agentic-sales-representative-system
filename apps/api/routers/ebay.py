@@ -17,7 +17,6 @@ from packages.db.session import get_session
 from packages.platform_adapters.ebay.oauth import (
     build_authorization_url,
     exchange_code,
-    generate_pkce_pair,
     token_expiry,
 )
 
@@ -50,24 +49,19 @@ async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict:  #
     Returns the eBay authorization URL. The frontend should redirect the user there.
     Stores PKCE verifier + seller_id in Redis keyed by the state nonce.
     """
-    # Generate PKCE code verifier and challenge for secure OAuth
-    code_verifier, code_challenge = generate_pkce_pair()
-    # Generate a secure random state nonce
     state = secrets.token_urlsafe(32)
 
     r = _redis()
     try:
-        # Store state data in Redis with TTL for security
         await r.setex(
             f"ebay:oauth:state:{state}",
             _STATE_TTL,
-            json.dumps({"seller_id": str(seller.id), "code_verifier": code_verifier}),
+            json.dumps({"seller_id": str(seller.id)}),
         )
     finally:
         await r.aclose()
 
-    # Return the authorization URL for frontend redirect
-    return {"authorization_url": build_authorization_url(state, code_challenge)}
+    return {"authorization_url": build_authorization_url(state)}
 
 
 @router.get("/callback")
@@ -105,14 +99,11 @@ async def ebay_callback(
         logger.warning("eBay OAuth callback received with invalid or expired state")
         return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
 
-    # Parse stored data to get seller ID and code verifier
     data = json.loads(stored)
     seller_id = uuid.UUID(data["seller_id"])
-    code_verifier: str = data["code_verifier"]
 
     try:
-        # Exchange authorization code for access token
-        token_data = await exchange_code(code, code_verifier)
+        token_data = await exchange_code(code)
     except httpx.HTTPStatusError as exc:
         logger.error("eBay token exchange failed: %s", exc.response.text)
         return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
