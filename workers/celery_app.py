@@ -1,6 +1,9 @@
 from celery import Celery
 
-from packages.config import settings
+from packages.config import configure_tracing, settings
+
+# Activate LangSmith tracing for worker processes
+configure_tracing()
 
 celery_app = Celery(
     "salesrep",
