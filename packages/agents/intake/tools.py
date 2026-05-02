@@ -153,8 +153,10 @@ async def execute_tool(
         return tool_input["prompt"], item_id
 
     if tool_name == "record_attribute":
-        field = tool_input["field"]
-        value = tool_input["value"]
+        field = tool_input.get("field")
+        value = tool_input.get("value")
+        if not field or value is None:
+            return "Error: record_attribute requires both 'field' and 'value'", item_id
 
         if field in _PROTECTED:
             return f"Error: cannot set protected field '{field}'", item_id

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     sqs_region: str = "us-east-1"
     internal_api_key: str = ""  # shared secret for EventBridge Scheduler → /internal/* endpoints
 
+    eventbridge_bus_name: str = ""  # empty = log events locally instead of sending to EventBridge
+    aws_region: str = "eu-west-2"
+
     s3_endpoint_url: str = "http://localhost:9000"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
@@ -44,8 +47,15 @@ class Settings(BaseSettings):
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
     ebay_env: str = "production"
-    ebay_redirect_uri: str = "http://localhost:8000/auth/ebay/callback"
+    ebay_ru_name: str = ""  # RuName from eBay Developer Portal (used as redirect_uri in OAuth requests)
+    ebay_redirect_uri: str = ""  # actual callback URL (registered under the RuName)
     ebay_marketplace_id: str = "EBAY_GB"
+
+    # Browse API credentials — can point at production even while OAuth uses sandbox
+    # (sandbox Browse index is sparse; production gives real comparable data)
+    ebay_browse_env: str = "production"
+    ebay_browse_client_id: str = ""  # falls back to ebay_client_id if empty
+    ebay_browse_client_secret: str = ""  # falls back to ebay_client_secret if empty
 
     # ── LangSmith tracing ──────────────────────────────────────────────────
     langsmith_tracing: bool = False
