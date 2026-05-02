@@ -118,3 +118,4 @@ AGENTS.md
 notebooks/output/ebay_playwright_features.parquet
 notebooks/00_ebay_listings_scraper.ipynb
 notebooks/00_source_sold_listing.ipynb
+implementation_plan_v2.md
