@@ -1,27 +1,30 @@
 """
-Pricing Agent (Agent 2) — v2 model edition.
+Pricing Agent (Agent 2) — v3 model edition.
 
 Determines optimal pricing for items by combining two signals:
-  1. XGBoost v2 model prediction — trained on eBay UK active listings with
-     sentence-transformer title embeddings, category/brand target encoding,
-     and group-comparable statistics.
+  1. LightGBM v3 prediction — trained on eBay UK active listings with
+     sentence-transformer embeddings (title + description PCA), OOF target
+     encoding for brand/category, LOO comparable stats, and temporal features.
   2. Live eBay comparable median — current market prices from the Browse API.
 
-Blend weights comparables more heavily (80 / 20) because the training set is
-GBP-priced UK listings and the comparable search reflects current market state.
+The model prediction already incorporates comparable stats as features (dominant
+signal), so the model gets the majority weight in the final blend (60 / 40).
 """
 
+import json
 import logging
 import os
 import pickle
 import statistics
 import uuid
+from datetime import datetime, timezone
 from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from packages.db.models import Item, ItemCondition
 from packages.platform_adapters.ebay.browse import search_comparables
@@ -30,55 +33,65 @@ from packages.schemas.agents import ComparableListing, PricingResult
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Model loading
+# Artifact loading
 # ---------------------------------------------------------------------------
 
-_BUNDLE_PATH = Path(__file__).parent.parent.parent / "ml" / "pricing_model_v2_bundle.pkl"
+_ML_DIR        = Path(__file__).parent.parent.parent / "ml"
+_MODEL_PATH    = _ML_DIR / "pricing_model_v3.pkl"
+_META_PATH     = _ML_DIR / "pricing_model_v3_meta.json"
+_PCA_TITLE_PATH = _ML_DIR / "pca_title_v3.pkl"
+_PCA_DESC_PATH  = _ML_DIR / "pca_desc_v3.pkl"
 
-_BUNDLE: dict | None = None
+_MODEL: object | None = None
+_META: dict | None = None
+_PCA_TITLE: object | None = None
+_PCA_DESC: object | None = None
+
 try:
-    with open(_BUNDLE_PATH, "rb") as _f:
-        _BUNDLE = pickle.load(_f)
-    logger.info("Pricing model v2 bundle loaded from %s", _BUNDLE_PATH)
-except FileNotFoundError:
-    logger.warning("v2 bundle not found at %s — run packages/ml/build_v2_bundle.py", _BUNDLE_PATH)
+    with open(_MODEL_PATH, "rb") as _f:
+        _MODEL = pickle.load(_f)
+    with open(_META_PATH) as _f:
+        _META = json.load(_f)
+    with open(_PCA_TITLE_PATH, "rb") as _f:
+        _PCA_TITLE = pickle.load(_f)
+    with open(_PCA_DESC_PATH, "rb") as _f:
+        _PCA_DESC = pickle.load(_f)
+    logger.info("Pricing model v3 loaded from %s", _ML_DIR)
+except FileNotFoundError as _e:
+    logger.warning("v3 model artifact not found (%s) — run the ML notebook save cell", _e)
 except Exception as _e:
-    logger.warning("Could not load v2 bundle (%s) — falling back to comparable median", _e)
+    logger.warning("Could not load v3 model (%s) — falling back to comparable median", _e)
 
-# Lazy-loaded sentence transformer (avoids import cost when model is absent).
-# NOTE: sentence_transformers uses transformers internally. The CLAUDE.md
-# architectural constraint (NLP/ML worker separation) should be revisited when
-# this agent moves to its own Celery pool; precomputing embeddings in Agent 1
-# and storing them in Item.attributes is the long-term decoupled approach.
+# ---------------------------------------------------------------------------
+# Lazy sentence transformer
+# ---------------------------------------------------------------------------
+
 _ST_MODEL = None
-_ST_MODEL_LOAD_ATTEMPTED = False
+_ST_LOAD_ATTEMPTED = False
 
 
 def _get_sentence_model():
-    global _ST_MODEL
-    global _ST_MODEL_LOAD_ATTEMPTED
+    global _ST_MODEL, _ST_LOAD_ATTEMPTED
 
-    if _ST_MODEL_LOAD_ATTEMPTED or _BUNDLE is None:
+    if _ST_LOAD_ATTEMPTED or _MODEL is None:
         return _ST_MODEL
 
-    _ST_MODEL_LOAD_ATTEMPTED = True
+    _ST_LOAD_ATTEMPTED = True
 
     if find_spec("sentence_transformers") is None:
         raise RuntimeError(
-            "sentence-transformers is required for Agent 2 pricing but is not installed. "
-            "Reinstall dependencies so the pricing runtime includes SentenceTransformer."
+            "sentence-transformers is required for pricing v3 but is not installed."
         )
 
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         from sentence_transformers import SentenceTransformer
 
-        _ST_MODEL = SentenceTransformer(_BUNDLE["sentence_model_name"])
+        model_name = (_META or {}).get("sentence_model_name", "all-MiniLM-L6-v2")
+        _ST_MODEL = SentenceTransformer(model_name)
     except Exception as e:
-        raise RuntimeError(
-            "Agent 2 pricing could not initialize SentenceTransformer. "
-            "The pricing model requires this embedding model to run."
-        ) from e
+        raise RuntimeError("Could not load SentenceTransformer for pricing v3") from e
+
     return _ST_MODEL
 
 
@@ -87,428 +100,113 @@ def _get_sentence_model():
 # ---------------------------------------------------------------------------
 
 _DEFAULT_FLOOR_RATIO = 0.70
-_MODEL_WEIGHT = 0.65
+_MODEL_WEIGHT = 0.60  # model 60%, live comparable median 40%
 
 # ---------------------------------------------------------------------------
-# Condition → ordinal bucket  (mirrors 02_preprocessing.ipynb Step 3)
+# Condition → v3 ordinal  (mirrors notebook CONDITION_ORDINAL)
 # ---------------------------------------------------------------------------
 
-_CONDITION_BUCKET: dict[ItemCondition, int] = {
-    ItemCondition.new: 5,
-    ItemCondition.like_new: 4,
-    ItemCondition.good: 3,
-    ItemCondition.fair: 2,
-    ItemCondition.poor: 1,
+_CONDITION_MAP: dict[ItemCondition, int] = {
+    ItemCondition.new:      4,
+    ItemCondition.like_new: 3,  # closest to open_box
+    ItemCondition.good:     2,  # closest to refurbished
+    ItemCondition.fair:     1,  # used
+    ItemCondition.poor:     0,  # for_parts
 }
 
 
-def _condition_bucket(item: Item) -> int:
-    return _CONDITION_BUCKET.get(item.condition, 3)
+def _condition_ord(item: Item) -> int:
+    return _CONDITION_MAP.get(item.condition, 2)
 
 
 # ---------------------------------------------------------------------------
-# Brand extraction from title  (mirrors 02_preprocessing.ipynb Step 4)
+# Feature construction + model prediction
 # ---------------------------------------------------------------------------
 
-_BRAND_DICTS: dict[str, list[str]] = {
-    "smartphones": [
-        "apple",
-        "iphone",
-        "samsung",
-        "galaxy",
-        "google",
-        "pixel",
-        "oneplus",
-        "huawei",
-        "honor",
-        "xiaomi",
-        "mi",
-        "oppo",
-        "vivo",
-        "realme",
-        "motorola",
-        "moto",
-        "nokia",
-        "sony",
-        "lg",
-        "asus",
-        "zenfone",
-        "blackberry",
-        "htc",
-        "lenovo",
-    ],
-    "laptops": [
-        "apple",
-        "macbook",
-        "mac",
-        "dell",
-        "hp",
-        "lenovo",
-        "thinkpad",
-        "asus",
-        "acer",
-        "msi",
-        "samsung",
-        "lg",
-        "huawei",
-        "xiaomi",
-        "microsoft",
-        "surface",
-        "razer",
-        "alienware",
-        "toshiba",
-        "sony",
-        "vaio",
-        "panasonic",
-        "fujitsu",
-        "gigabyte",
-    ],
-    "smartwatches": [
-        "apple",
-        "watch",
-        "samsung",
-        "galaxy",
-        "fitbit",
-        "garmin",
-        "huawei",
-        "honor",
-        "xiaomi",
-        "amazfit",
-        "oneplus",
-        "fossil",
-        "skagen",
-        "diesel",
-        "citizen",
-        "seiko",
-        "timex",
-        "casio",
-        "g-shock",
-        "polar",
-        "suunto",
-        "coros",
-        "withings",
-    ],
-    "coffee": [
-        "nespresso",
-        "nescafe",
-        "dolmio",
-        "illy",
-        "lavazza",
-        "starbucks",
-        "tassimo",
-        "kenco",
-        "maxwell",
-        "douwe",
-        "egberts",
-        "jacobs",
-        "krone",
-        "mccafe",
-        "segafredo",
-        "kimbo",
-    ],
-    "cycling": [
-        "trek",
-        "specialized",
-        "cannondale",
-        "giant",
-        "santacruz",
-        "yeti",
-        "pivot",
-        "salsa",
-        "surly",
-        "bianchi",
-        "colnago",
-        "pinarello",
-        "cervelo",
-        "felt",
-        "wilier",
-        "de rosa",
-        "bmc",
-        "scott",
-        "orbea",
-        "cube",
-        "haibike",
-        "canyon",
-    ],
-    "golf": [
-        "titleist",
-        "callaway",
-        "ping",
-        "taylor",
-        "made",
-        "cobra",
-        "mizuno",
-        "srixon",
-        "wilson",
-        "adidas",
-        "nike",
-        "puma",
-        "under",
-        "armour",
-        "oakley",
-        "suncloud",
-    ],
-    "vacuums": [
-        "dyson",
-        "shark",
-        "hoover",
-        "vax",
-        "numatic",
-        "karcher",
-        "bissell",
-        "miele",
-        "sebo",
-        "electrolux",
-        "zanussi",
-        "hotpoint",
-        "beko",
-        "bosch",
-        "siemens",
-    ],
-    "pokemon_cards": [
-        "pokemon",
-        "pokémon",
-        "first",
-        "edition",
-        "1st",
-        "shadowless",
-        "charizard",
-        "blastoise",
-        "venusaur",
-        "pikachu",
-        "mewtwo",
-        "mew",
-        "gyarados",
-    ],
-    "funko_pop": [
-        "funko",
-        "pop",
-        "vinyl",
-        "figure",
-        "marvel",
-        "dc",
-        "star wars",
-        "disney",
-        "harry potter",
-        "stranger things",
-        "the office",
-        "friends",
-        "breaking bad",
-    ],
-    "vinyl_records": [
-        "vinyl",
-        "lp",
-        "album",
-        "record",
-        "pressing",
-        "original",
-        "reissue",
-        "remaster",
-    ],
-    "speakers": [
-        "jbl",
-        "sony",
-        "bose",
-        "marshall",
-        "sennheiser",
-        "audio",
-        "technica",
-        "beyerdynamic",
-        "bang",
-        "olufsen",
-        "harman",
-        "kardon",
-        "klipsch",
-        "polk",
-        "def",
-        "tech",
-        "microlab",
-    ],
-    "textbooks": [
-        "penguin",
-        "oxford",
-        "cambridge",
-        "harper",
-        "collins",
-        "macmillan",
-        "pearson",
-        "wiley",
-        "springer",
-        "elsevier",
-        "taylor",
-        "francis",
-        "routledge",
-    ],
-    "cameras": [
-        "canon",
-        "nikon",
-        "sony",
-        "fujifilm",
-        "panasonic",
-        "olympus",
-        "leica",
-        "hasselblad",
-        "pentax",
-        "sigma",
-        "tamron",
-        "tokina",
-        "zeiss",
-        "gopro",
-    ],
-    "consoles": [
-        "playstation",
-        "ps5",
-        "ps4",
-        "ps3",
-        "ps2",
-        "xbox",
-        "nintendo",
-        "switch",
-        "wii",
-        "gamecube",
-        "dreamcast",
-        "sega",
-        "atari",
-    ],
-    "mens_clothing": [
-        "nike",
-        "adidas",
-        "puma",
-        "levi",
-        "diesel",
-        "calvin klein",
-        "ck",
-        "tommy hilfiger",
-        "ralph lauren",
-        "polo",
-        "supreme",
-        "stone island",
-        "moncler",
-        "canada goose",
-    ],
-    "womens_clothing": [
-        "nike",
-        "adidas",
-        "puma",
-        "zara",
-        "h&m",
-        "mango",
-        "stradivarius",
-        "pull&bear",
-        "bershka",
-        "victoria secret",
-        "marks&spencer",
-        "m&s",
-        "next",
-        "topshop",
-    ],
-    "trainers": [
-        "nike",
-        "adidas",
-        "puma",
-        "reebok",
-        "new balance",
-        "converse",
-        "vans",
-        "supreme",
-        "jordan",
-        "yeezy",
-        "balenciaga",
-        "off-white",
-        "stone island",
-    ],
-    "video_games": [
-        "playstation",
-        "xbox",
-        "nintendo",
-        "sega",
-        "atari",
-        "gamecube",
-        "wii",
-        "switch",
-    ],
-}
 
-
-def _extract_brand(title: str | None, category: str | None) -> str:
-    if not title:
-        return "__UNKNOWN_BRAND__"
-    title_lower = title.lower()
-    for brand in _BRAND_DICTS.get((category or "").lower(), []):
-        if brand in title_lower:
-            return brand.title()
-    return "__UNKNOWN_BRAND__"
-
-
-# ---------------------------------------------------------------------------
-# Feature construction
-# ---------------------------------------------------------------------------
-
-# Indices within scaler_features (order defined by feature_info.json)
-_SCALER_IDX = {
-    "title_length": 0,
-    "seller_feedback_score": 1,
-    "seller_feedback_pct": 2,
-    "group_median_price": 3,
-    "group_mean_price": 4,
-    "group_std_price": 5,
-    # title_emb_0..15 occupy indices 6..21
-}
-_EMB_START = 6
-
-
-def _model_predict(item: Item) -> float | None:
-    if _BUNDLE is None:
+def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
+    if _MODEL is None or _META is None or _PCA_TITLE is None or _PCA_DESC is None:
         return None
-    st_model = _get_sentence_model()
+
+    st = _get_sentence_model()
 
     try:
-        bundle = _BUNDLE
+        feature_cols = _META["feature_cols"]
+        enc = _META.get("inference_encodings", {})
+
         title = item.name or ""
+        description = item.description or ""
         category = (item.category or "").lower()
 
-        # ── 1. Title embedding → PCA (16 components) ──────────────────────
-        emb = st_model.encode([title])  # (1, 384)
-        emb_pca = bundle["pca"].transform(emb)  # (1, 16)
+        # ── Comparable stats from live eBay search ─────────────────────────
+        prices = [p for p in comparable_prices if p > 0]
+        comp_median = float(np.median(prices)) if prices else 0.0
+        comp_mean   = float(np.mean(prices))   if prices else 0.0
+        comp_std    = float(np.std(prices))     if prices else 0.0
+        comp_count  = float(len(prices))
 
-        # ── 2. Group stats lookup ──────────────────────────────────────────
-        bucket = _condition_bucket(item)
-        stats = bundle["group_stats"].get((category, bucket), bundle["global_stats"])
-
-        # ── 3. Assemble raw (unscaled) feature vector ──────────────────────
-        # seller_feedback_score/pct unavailable at inference → pass training
-        # mean value so that after scaling the contribution is effectively 0.
-        raw_vals = [0.0] * len(bundle["scaler_features"])
-        raw_vals[_SCALER_IDX["title_length"]] = float(len(title))
-        raw_vals[_SCALER_IDX["seller_feedback_score"]] = float(bundle["_seller_fb_score_mean"])
-        raw_vals[_SCALER_IDX["seller_feedback_pct"]] = float(bundle["_seller_fb_pct_mean"])
-        raw_vals[_SCALER_IDX["group_median_price"]] = stats["median"]
-        raw_vals[_SCALER_IDX["group_mean_price"]] = stats["mean"]
-        raw_vals[_SCALER_IDX["group_std_price"]] = stats["std"]
-        raw_vals[_EMB_START : _EMB_START + 16] = list(emb_pca[0])
-
-        scaled = bundle["scaler"].transform(np.array([raw_vals], dtype=float))  # (1, 22)
-
-        # ── 4. Build the full 26-feature dict ─────────────────────────────
-        feat: dict[str, float] = {}
-        for i, name in enumerate(bundle["scaler_features"]):
-            feat[f"{name}_scaled"] = float(scaled[0, i])
-
-        brand = _extract_brand(title, category)
-        feat["category_encoded"] = bundle["category_encoder"].get(
-            category, bundle["global_category_mean"]
+        # ── Title embeddings → PCA ─────────────────────────────────────────
+        title_emb = st.encode(
+            [title],
+            convert_to_tensor=False,
+            normalize_embeddings=True,
+            batch_size=1,
         )
-        feat["brand_encoded"] = bundle["brand_encoder"].get(brand, bundle["global_brand_mean"])
-        feat["group_count"] = float(stats["count"])
-        feat["condition_bucket"] = float(bucket)
+        title_pca = _PCA_TITLE.transform(title_emb)[0]
 
-        # feature_names_in_ uses np.str_; convert to plain str for dict lookup
-        x = np.array([[feat[str(k)] for k in bundle["feature_names"]]], dtype=float)
-        log_pred = float(bundle["model"].predict(x)[0])
-        return float(np.expm1(log_pred))
+        # ── Description embeddings → PCA (first 150 words) ─────────────────
+        desc_text = " ".join(description.split()[:150])
+        desc_emb  = st.encode(
+            [desc_text],
+            convert_to_tensor=False,
+            normalize_embeddings=True,
+            batch_size=1,
+        )
+        desc_pca = _PCA_DESC.transform(desc_emb)[0]
+
+        # ── Temporal features from current UTC time ────────────────────────
+        now   = datetime.now(timezone.utc)
+        dow   = now.weekday()
+        month = now.month
+
+        # ── Target encodings ───────────────────────────────────────────────
+        brand = (item.attributes or {}).get("brand", "").lower() if item.attributes else ""
+        brand_enc    = enc.get("brand", {}).get(brand, enc.get("brand_global_mean", 0.0))
+        category_enc = enc.get("category", {}).get(category, enc.get("category_global_mean", 0.0))
+
+        # ── Assemble feature dict ──────────────────────────────────────────
+        feat: dict[str, float] = {
+            "description_length":      float(len(description.split())),
+            "image_count":             float(len(item.images)),
+            "title_length":            float(len(title.split())),
+            "condition_ord":           float(_condition_ord(item)),
+            "comparable_median_price": comp_median,
+            "comparable_mean_price":   comp_mean,
+            "comparable_stdev_price":  comp_std,
+            "comparable_count":        comp_count,
+            "brand_enc":               float(brand_enc),
+            "category_enc":            float(category_enc),
+            "dow_sin":                 float(np.sin(2 * np.pi * dow / 7)),
+            "dow_cos":                 float(np.cos(2 * np.pi * dow / 7)),
+            "month_sin":               float(np.sin(2 * np.pi * (month - 1) / 12)),
+            "month_cos":               float(np.cos(2 * np.pi * (month - 1) / 12)),
+            **{f"title_pc{i+1}": float(v) for i, v in enumerate(title_pca)},
+            **{f"desc_pc{i+1}":  float(v) for i, v in enumerate(desc_pca)},
+        }
+
+        x = np.array([[feat[col] for col in feature_cols]], dtype=float)
+        log_pred = float(_MODEL.predict(x)[0])
+        pred = float(np.expm1(log_pred))
+
+        # Apply per-category calibration if it was saved
+        cat_bounds = _META.get("cat_price_bounds", {}).get(category)
+        if cat_bounds:
+            pred = float(np.clip(pred, cat_bounds["floor"], cat_bounds["ceiling"]))
+
+        return pred
 
     except Exception:
-        logger.exception("XGBoost v2 prediction failed — falling back to comparable median")
+        logger.exception("v3 prediction failed — falling back to comparable median")
         return None
 
 
@@ -518,17 +216,21 @@ def _model_predict(item: Item) -> float | None:
 
 
 async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -> PricingResult:
-    """Agent 2 — Pricing (v2 model).
+    """Agent 2 — Pricing (v3 model).
 
-    Combines an XGBoost v2 model prediction with live eBay comparable prices.
+    Combines a LightGBM v3 prediction with live eBay comparable prices.
 
     Price derivation:
-      - Both available:        recommended = 0.2 * model_pred + 0.8 * comparable_median
+      - Both available:        recommended = 0.6 * model_pred + 0.4 * comparable_median
       - Comparables only:      recommended = comparable_median
       - Model only:            recommended = model_pred
       - Neither:               recommended = 0.0
     """
-    row = await session.scalar(select(Item).where(Item.id == item_id, Item.seller_id == seller_id))
+    row = await session.scalar(
+        select(Item)
+        .where(Item.id == item_id, Item.seller_id == seller_id)
+        .options(selectinload(Item.images))
+    )
     if row is None:
         return PricingResult(
             item_id=item_id,
@@ -537,8 +239,6 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
             min_acceptable_price=0.0,
         )
 
-    model_pred = _model_predict(row)
-
     raw = await search_comparables(
         name=row.name,
         condition=str(row.condition),
@@ -546,6 +246,8 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
     )
     prices = [c.price for c in raw if c.price > 0]
     comparable_median = statistics.median(prices) if prices else None
+
+    model_pred = _model_predict(row, prices)
 
     if comparable_median is not None and model_pred is not None:
         recommended = (1 - _MODEL_WEIGHT) * comparable_median + _MODEL_WEIGHT * model_pred
@@ -557,16 +259,16 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         recommended = 0.0
 
     if len(prices) >= 2:
-        price_low = float(np.percentile(prices, 25))
+        price_low  = float(np.percentile(prices, 25))
         price_high = float(np.percentile(prices, 75))
     elif len(prices) == 1:
-        price_low = prices[0] * 0.85
+        price_low  = prices[0] * 0.85
         price_high = prices[0] * 1.15
     elif recommended > 0:
-        price_low = recommended * 0.80
+        price_low  = recommended * 0.80
         price_high = recommended * 1.20
     else:
-        price_low = 0.0
+        price_low  = 0.0
         price_high = 0.0
 
     if prices:
