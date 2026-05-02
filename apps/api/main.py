@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 
 from apps.api.routers import auth, ebay, health, images, intake, internal
+from packages.config import configure_tracing
+
+# Activate LangSmith tracing before any LangGraph graph is compiled
+configure_tracing()
 
 app = FastAPI(
     title="Multi-Agent Sales Assistant",

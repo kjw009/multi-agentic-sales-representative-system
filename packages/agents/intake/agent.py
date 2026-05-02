@@ -7,6 +7,7 @@ about items they want to sell, using a LangGraph-based state machine.
 
 import uuid
 
+from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,7 @@ from packages.db.models import ChatMessage, ChatRole
 _HISTORY_LIMIT = 20
 
 
+@traceable(name="intake_load_history", run_type="retriever")
 async def load_history(
     seller_id: uuid.UUID,
     item_id: uuid.UUID | None,
@@ -46,6 +48,7 @@ async def load_history(
     ]
 
 
+@traceable(name="intake_agent", run_type="chain")
 async def run(
     message: str,
     seller_id: uuid.UUID,

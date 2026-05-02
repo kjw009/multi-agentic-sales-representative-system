@@ -1,10 +1,12 @@
 import uuid
 
+from langsmith import traceable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.schemas.agents import CommsResult
 
 
+@traceable(name="comms_agent", run_type="chain")
 async def run(
     message_id: uuid.UUID,
     listing_id: uuid.UUID,

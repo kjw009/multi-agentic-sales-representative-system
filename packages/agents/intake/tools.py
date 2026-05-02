@@ -9,6 +9,7 @@ Includes execution logic for these tools with database operations.
 import uuid
 from decimal import Decimal, InvalidOperation
 
+from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,6 +134,7 @@ async def _get_or_create_item(
     return item
 
 
+@traceable(name="intake_execute_tool", run_type="tool")
 async def execute_tool(
     tool_name: str,
     tool_input: dict,

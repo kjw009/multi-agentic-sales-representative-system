@@ -22,6 +22,7 @@ from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
+from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -124,6 +125,7 @@ def _condition_ord(item: Item) -> int:
 # ---------------------------------------------------------------------------
 
 
+@traceable(name="pricing_model_predict", run_type="tool")
 def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
     if _MODEL is None or _META is None or _PCA_TITLE is None or _PCA_DESC is None:
         return None
@@ -215,6 +217,7 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
 # ---------------------------------------------------------------------------
 
 
+@traceable(name="pricing_agent", run_type="chain")
 async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -> PricingResult:
     """Agent 2 — Pricing (v3 model).
 

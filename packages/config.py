@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -46,6 +47,11 @@ class Settings(BaseSettings):
     ebay_redirect_uri: str = "http://localhost:8000/auth/ebay/callback"
     ebay_marketplace_id: str = "EBAY_GB"
 
+    # ── LangSmith tracing ──────────────────────────────────────────────────
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "salesrep"
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -53,3 +59,17 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def configure_tracing() -> None:
+    """Push LangSmith env vars so the SDK picks them up globally.
+
+    Call this once at process startup (API, Celery worker) *before* any
+    LangGraph graph is compiled or invoked.
+    """
+    if not settings.langsmith_tracing or not settings.langsmith_api_key:
+        return
+
+    os.environ.setdefault("LANGSMITH_TRACING", "true")
+    os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
+    os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
