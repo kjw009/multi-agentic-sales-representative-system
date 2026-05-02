@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     sqs_region: str = "us-east-1"
     internal_api_key: str = ""  # shared secret for EventBridge Scheduler → /internal/* endpoints
 
+    eventbridge_bus_name: str = ""  # empty = log events locally instead of sending to EventBridge
+    aws_region: str = "eu-west-2"
+
     s3_endpoint_url: str = "http://localhost:9000"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api, PricingResult } from "@/lib/api";
+import { api, PricingResult, ListingStatus } from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";
@@ -122,6 +122,82 @@ function PricingSpinner() {
   );
 }
 
+function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
+  const statusConfig = {
+    publishing: {
+      label: "Publishing to eBay…",
+      color: "bg-amber-50 border-amber-200 text-amber-700",
+      icon: (
+        <div className="flex items-center gap-1.5">
+          <div className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+          <span className="text-xs font-medium">In progress</span>
+        </div>
+      ),
+    },
+    live: {
+      label: "Live on eBay",
+      color: "bg-emerald-50 border-emerald-200 text-emerald-700",
+      icon: (
+        <div className="flex items-center gap-1.5">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          <span className="text-xs font-medium">Active</span>
+        </div>
+      ),
+    },
+    ended: {
+      label: "Listing ended",
+      color: "bg-gray-50 border-gray-200 text-gray-500",
+      icon: <span className="text-xs font-medium">Ended</span>,
+    },
+    error: {
+      label: "Publishing failed",
+      color: "bg-rose-50 border-rose-200 text-rose-700",
+      icon: (
+        <div className="flex items-center gap-1.5">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+          <span className="text-xs font-medium">Error</span>
+        </div>
+      ),
+    },
+  };
+
+  const config = statusConfig[listing.status];
+
+  return (
+    <div className={`rounded-2xl border p-4 space-y-3 shadow-sm ${config.color}`}>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium">{config.label}</p>
+        {config.icon}
+      </div>
+
+      {listing.posted_price != null && (
+        <p className="text-xs opacity-75">
+          Listed at <span className="font-medium">{fmt(listing.posted_price)}</span>
+        </p>
+      )}
+
+      {listing.url && (
+        <a
+          href={listing.url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs font-medium underline underline-offset-2 hover:opacity-80 transition-opacity"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101" />
+          </svg>
+          View on eBay
+        </a>
+      )}
+    </div>
+  );
+}
+
 /* ── Toast notification ────────────────────────────────────────────── */
 
 function Toast({ message, type, onClose }: { message: string; type: "success" | "error" | "info"; onClose: () => void }) {
@@ -161,6 +237,10 @@ function ChatPageInner() {
   const [pricingPending, setPricingPending] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollAttempts = useRef(0);
+
+  // Listing state
+  const [listingStatus, setListingStatus] = useState<ListingStatus | null>(null);
+  const [listingPending, setListingPending] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -213,20 +293,38 @@ function ChatPageInner() {
       if (pollAttempts.current > MAX_POLL_ATTEMPTS) {
         clearInterval(pollRef.current!);
         setPricingPending(false);
+        setListingPending(false);
         return;
       }
       try {
-        const result = await api.getPricing(id);
-        if (result) {
-          clearInterval(pollRef.current!);
-          setPricingPending(false);
-          setPricingResult(result);
+        // Poll pricing
+        if (!pricingResult) {
+          const result = await api.getPricing(id);
+          if (result) {
+            setPricingPending(false);
+            setPricingResult(result);
+            // Pricing done → now start watching for listing status
+            setListingPending(true);
+          }
+        }
+
+        // Poll listing status (runs after pricing completes)
+        const ls = await api.getListingStatus(id);
+        if (ls) {
+          setListingStatus(ls);
+          if (ls.status === "live" || ls.status === "error" || ls.status === "ended") {
+            setListingPending(false);
+            // If listing is live/error/ended and pricing is also done, stop polling
+            if (!pricingPending) {
+              clearInterval(pollRef.current!);
+            }
+          }
         }
       } catch {
         // swallow — keep polling
       }
     }, POLL_INTERVAL_MS);
-  }, []);
+  }, [pricingResult, pricingPending]);
 
   async function handleConnectEbay() {
     setConnectingEbay(true);
@@ -301,6 +399,7 @@ function ChatPageInner() {
   }
 
   const showPricingPanel = pricingResult !== null || pricingPending;
+  const showListingPanel = listingStatus !== null || listingPending;
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -418,14 +517,37 @@ function ChatPageInner() {
         </form>
       </main>
 
-      {/* Pricing panel — slides in once intake completes */}
-      {showPricingPanel && (
-        <aside className="w-80 shrink-0 bg-gray-50 border-l border-gray-200 p-5 overflow-y-auto">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-4">
-            Pricing
-          </p>
-          {pricingPending && !pricingResult && <PricingSpinner />}
-          {pricingResult && <PricingPanel pricing={pricingResult} />}
+      {/* Pricing + Listing panel — slides in once intake completes */}
+      {(showPricingPanel || showListingPanel) && (
+        <aside className="w-80 shrink-0 bg-gray-50 border-l border-gray-200 p-5 overflow-y-auto space-y-6">
+          {/* Pricing section */}
+          {showPricingPanel && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-4">
+                Pricing
+              </p>
+              {pricingPending && !pricingResult && <PricingSpinner />}
+              {pricingResult && <PricingPanel pricing={pricingResult} />}
+            </div>
+          )}
+
+          {/* Listing section */}
+          {(showListingPanel || listingStatus) && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-4">
+                Listing
+              </p>
+              {listingPending && !listingStatus && (
+                <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-gray-300 animate-pulse" />
+                    <p className="text-xs text-gray-400">Preparing eBay listing…</p>
+                  </div>
+                </div>
+              )}
+              {listingStatus && <ListingStatusPanel listing={listingStatus} />}
+            </div>
+          )}
         </aside>
       )}
     </div>

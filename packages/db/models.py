@@ -56,6 +56,14 @@ class Platform(enum.StrEnum):
     ebay = "ebay"
 
 
+class ListingStatus(enum.StrEnum):
+    # Listing lifecycle through publishing → sale
+    publishing = "publishing"  # Being pushed to marketplace
+    live = "live"  # Visible and active on marketplace
+    ended = "ended"  # Closed (sold, withdrawn, etc.)
+    error = "error"  # Failed to publish
+
+
 # --- MODELS ---
 
 
@@ -96,6 +104,11 @@ class Seller(Base):
     )
     chat_messages: Mapped[list["ChatMessage"]] = relationship(
         "ChatMessage",
+        back_populates="seller",
+        cascade="all, delete-orphan",
+    )
+    listings: Mapped[list["Listing"]] = relationship(
+        "Listing",
         back_populates="seller",
         cascade="all, delete-orphan",
     )
@@ -177,6 +190,12 @@ class Item(Base):
     chat_messages: Mapped[list["ChatMessage"]] = relationship(
         "ChatMessage",
         back_populates="item",
+    )
+
+    listings: Mapped[list["Listing"]] = relationship(
+        "Listing",
+        back_populates="item",
+        cascade="all, delete-orphan",
     )
 
 
@@ -304,3 +323,81 @@ class PlatformCredential(Base):
 
     # Relationship
     seller: Mapped["Seller"] = relationship("Seller", back_populates="platform_credentials")
+
+
+class Listing(Base):
+    __tablename__ = "listings"
+
+    # Enforces one listing per item per platform
+    __table_args__ = (
+        UniqueConstraint("item_id", "platform", name="uq_listings_item_platform"),
+    )
+
+    # Primary key
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Item being listed
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Owner reference (required for RLS)
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Platform
+    platform: Mapped[Platform] = mapped_column(
+        Enum(Platform, name="platform", create_type=False),
+        nullable=False,
+    )
+
+    # External identifiers from the marketplace
+    external_id: Mapped[str | None] = mapped_column(String(255))  # eBay listing ID
+    url: Mapped[str | None] = mapped_column(String(2048))  # Live listing URL
+
+    # Listing lifecycle status
+    status: Mapped[ListingStatus] = mapped_column(
+        Enum(ListingStatus, name="listing_status"),
+        nullable=False,
+        default=ListingStatus.publishing,
+    )
+
+    # Price at which the item was listed
+    posted_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+
+    # Reason the listing was closed (sold, withdrawn, expired, etc.)
+    close_reason: Mapped[str | None] = mapped_column(String(255))
+
+    # Reprice tracking
+    reprice_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_repriced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Buyer interaction tracking
+    last_buyer_interaction_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Lifecycle timestamps
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Auto-managed timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    # Relationships
+    item: Mapped["Item"] = relationship("Item", back_populates="listings")
+    seller: Mapped["Seller"] = relationship("Seller", back_populates="listings")
