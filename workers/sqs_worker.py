@@ -7,11 +7,13 @@ Usage:
     uv run python -m workers.sqs_worker
 """
 
+import asyncio
 import json
 import logging
 import signal
 import sys
 import time
+import uuid
 from collections.abc import Callable
 
 import boto3
@@ -32,6 +34,24 @@ def register(task_name: str) -> Callable:
         return fn
 
     return decorator
+
+
+# ---------------------------------------------------------------------------
+# Task handlers
+# ---------------------------------------------------------------------------
+
+
+@register("run_pipeline")
+def handle_run_pipeline(seller_id: str, item_id: str) -> None:
+    """Execute the pricing → publishing pipeline for a single item."""
+    from packages.agents.pipeline import run_pipeline
+
+    asyncio.run(run_pipeline(uuid.UUID(seller_id), uuid.UUID(item_id)))
+
+
+# ---------------------------------------------------------------------------
+# Worker loop
+# ---------------------------------------------------------------------------
 
 
 def _process(msg: dict) -> None:
@@ -90,3 +110,4 @@ def run() -> None:
 if __name__ == "__main__":
     logging.basicConfig(level=settings.log_level)
     run()
+

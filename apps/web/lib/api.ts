@@ -69,6 +69,13 @@ export interface EbayStatusResponse {
   expires_at: string | null;
 }
 
+export interface ListingStatus {
+  status: "publishing" | "live" | "ended" | "error";
+  url: string | null;
+  external_id: string | null;
+  posted_price: number | null;
+}
+
 export const api = {
   signup: (email: string, password: string) =>
     request<TokenResponse>("/auth/signup", {
@@ -106,4 +113,9 @@ export const api = {
   // Returns null while pricing is in progress, PricingResult once complete
   getPricing: (itemId: string) =>
     request<PricingResult | null>(`/agent/intake/pricing/${itemId}`),
+
+  // Returns null while listing is not yet created, ListingStatus once publisher runs
+  getListingStatus: (itemId: string) =>
+    request<ListingStatus | null>(`/agent/intake/listing/${itemId}`),
 };
+

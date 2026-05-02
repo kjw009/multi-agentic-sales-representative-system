@@ -8,7 +8,8 @@ from apps.api.deps import get_current_seller
 from packages.agents.intake.agent import load_history
 from packages.agents.intake.agent import run as run_agent
 from packages.agents.pipeline import run_pipeline
-from packages.db.models import ChatMessage, ChatRole, Item, Seller
+from packages.config import settings
+from packages.db.models import ChatMessage, ChatRole, Item, Listing, Platform, Seller
 from packages.db.session import get_session
 from packages.schemas.agents import ComparableListing, PricingResult
 from packages.schemas.intake import MessageRequest, MessageResponse
@@ -59,7 +60,12 @@ async def intake_message(
     await session.commit()
 
     if complete and item_id:
-        background_tasks.add_task(run_pipeline, seller.id, item_id)
+        if settings.sqs_queue_url:
+            from packages.bus.sqs import enqueue
+
+            enqueue("run_pipeline", seller_id=str(seller.id), item_id=str(item_id))
+        else:
+            background_tasks.add_task(run_pipeline, seller.id, item_id)
 
     return MessageResponse(
         content=reply_text,
@@ -98,3 +104,34 @@ async def get_pricing(
         price_high=float(item.price_high or 0),
         comparables=comparables,
     )
+
+
+@router.get("/listing/{item_id}")
+async def get_listing_status(
+    item_id: uuid.UUID,
+    seller: Seller = Depends(get_current_seller),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict | None:
+    """
+    Return the listing status for an item once publishing has started.
+
+    Returns null while the item is still being priced.
+    Once the publisher agent runs, returns status + eBay URL.
+    """
+    listing = await session.scalar(
+        select(Listing).where(
+            Listing.item_id == item_id,
+            Listing.seller_id == seller.id,
+            Listing.platform == Platform.ebay,
+        )
+    )
+    if listing is None:
+        return None
+
+    return {
+        "status": str(listing.status),
+        "url": listing.url,
+        "external_id": listing.external_id,
+        "posted_price": float(listing.posted_price) if listing.posted_price else None,
+    }
+
