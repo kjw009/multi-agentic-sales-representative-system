@@ -13,6 +13,7 @@ from typing import TypedDict
 import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
+from langsmith import traceable
 from sqlalchemy import func, select
 
 from packages.agents.intake.tools import TOOL_DEFINITIONS, execute_tool
@@ -110,6 +111,7 @@ async def _plan_next_step(session, item_id: uuid.UUID | None) -> tuple[str | Non
     return "Great — I have everything I need to prepare your listing!", False, True
 
 
+@traceable(name="intake_node", run_type="chain")
 async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     """
     Main node function for the intake graph.

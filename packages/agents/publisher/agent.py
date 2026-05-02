@@ -1,10 +1,12 @@
 import uuid
 
+from langsmith import traceable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.schemas.agents import ListingResult, PricingResult
 
 
+@traceable(name="publisher_agent", run_type="chain")
 async def run(
     item_id: uuid.UUID,
     seller_id: uuid.UUID,

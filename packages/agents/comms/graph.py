@@ -13,6 +13,7 @@ from typing import TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
+from langsmith import traceable
 
 from packages.agents.comms.agent import run as run_agent
 
@@ -27,6 +28,7 @@ class CommsState(TypedDict):
     requires_approval: bool
 
 
+@traceable(name="comms_node", run_type="chain")
 async def comms_node(state: CommsState, config: RunnableConfig) -> dict:
     session = config["configurable"]["session"]
 
