@@ -44,7 +44,6 @@ class Settings(BaseSettings):
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
     ebay_env: str = "production"
-    ebay_ru_name: str = ""  # eBay redirect_uri name (set in developer portal)
     ebay_redirect_uri: str = "http://localhost:8000/auth/ebay/callback"
     ebay_marketplace_id: str = "EBAY_GB"
 
