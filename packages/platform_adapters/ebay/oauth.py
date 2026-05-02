@@ -1,6 +1,4 @@
 import base64
-import hashlib
-import os
 import urllib.parse
 from datetime import UTC, datetime, timedelta
 
@@ -13,7 +11,8 @@ SCOPES = [
     "https://api.ebay.com/oauth/api_scope/sell.account",
     "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
     "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
-    "https://api.ebay.com/oauth/api_scope/sell.messaging",
+    # sell.messaging requires a separate eBay approval — add back once granted
+    # "https://api.ebay.com/oauth/api_scope/sell.messaging",
 ]
 
 _SANDBOX_AUTH_URL = "https://auth.sandbox.ebay.com/oauth2/authorize"
@@ -35,28 +34,19 @@ def _basic_auth() -> str:
     return base64.b64encode(creds.encode()).decode()
 
 
-def generate_pkce_pair() -> tuple[str, str]:
-    """Return (code_verifier, code_challenge). Challenge uses S256 method."""
-    code_verifier = base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode()
-    digest = hashlib.sha256(code_verifier.encode()).digest()
-    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
-    return code_verifier, code_challenge
 
-
-def build_authorization_url(state: str, code_challenge: str) -> str:
+def build_authorization_url(state: str) -> str:
     params = {
         "client_id": settings.ebay_client_id,
         "response_type": "code",
-        "redirect_uri": settings.ebay_redirect_uri,
+        "redirect_uri": settings.ebay_ru_name,
         "scope": " ".join(SCOPES),
         "state": state,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
     }
     return f"{_auth_url()}?{urllib.parse.urlencode(params)}"
 
 
-async def exchange_code(code: str, code_verifier: str) -> dict:
+async def exchange_code(code: str) -> dict:
     """Exchange authorization code for tokens. Returns the raw eBay token response dict."""
     async with httpx.AsyncClient() as client:
         r = await client.post(
@@ -68,8 +58,7 @@ async def exchange_code(code: str, code_verifier: str) -> dict:
             data={
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": settings.ebay_redirect_uri,
-                "code_verifier": code_verifier,
+                "redirect_uri": settings.ebay_ru_name,
             },
         )
         r.raise_for_status()
