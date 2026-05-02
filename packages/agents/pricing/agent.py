@@ -7,8 +7,8 @@ Determines optimal pricing for items by combining two signals:
      encoding for brand/category, LOO comparable stats, and temporal features.
   2. Live eBay comparable median — current market prices from the Browse API.
 
-The model prediction already incorporates comparable stats as features, so
-comparables are weighted more heavily in the final blend (80 / 20).
+The model prediction already incorporates comparable stats as features (dominant
+signal), so the model gets the majority weight in the final blend (60 / 40).
 """
 
 import json
@@ -100,7 +100,7 @@ def _get_sentence_model():
 # ---------------------------------------------------------------------------
 
 _DEFAULT_FLOOR_RATIO = 0.70
-_MODEL_WEIGHT = 0.20  # model 20%, live comparable median 80%
+_MODEL_WEIGHT = 0.60  # model 60%, live comparable median 40%
 
 # ---------------------------------------------------------------------------
 # Condition → v3 ordinal  (mirrors notebook CONDITION_ORDINAL)
@@ -221,7 +221,7 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
     Combines a LightGBM v3 prediction with live eBay comparable prices.
 
     Price derivation:
-      - Both available:        recommended = 0.2 * model_pred + 0.8 * comparable_median
+      - Both available:        recommended = 0.6 * model_pred + 0.4 * comparable_median
       - Comparables only:      recommended = comparable_median
       - Model only:            recommended = model_pred
       - Neither:               recommended = 0.0
