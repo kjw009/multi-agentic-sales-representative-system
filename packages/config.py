@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     ebay_redirect_uri: str = ""  # actual callback URL (registered under the RuName)
     ebay_marketplace_id: str = "EBAY_GB"
 
+    # Browse API credentials — can point at production even while OAuth uses sandbox
+    # (sandbox Browse index is sparse; production gives real comparable data)
+    ebay_browse_env: str = "production"
+    ebay_browse_client_id: str = ""  # falls back to ebay_client_id if empty
+    ebay_browse_client_secret: str = ""  # falls back to ebay_client_secret if empty
+
     # ── LangSmith tracing ──────────────────────────────────────────────────
     langsmith_tracing: bool = False
     langsmith_api_key: str = ""

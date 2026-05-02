@@ -58,26 +58,32 @@ _app_token_expiry: datetime | None = None
 _token_lock = asyncio.Lock()
 
 
-async def _get_app_token() -> str:
-    """Get a cached application token for eBay API access.
+def _browse_client_id() -> str:
+    return settings.ebay_browse_client_id or settings.ebay_client_id
 
-    Uses client credentials flow to obtain an app token if not cached or expired.
-    Tokens are cached in-process to avoid unnecessary API calls.
+
+def _browse_client_secret() -> str:
+    return settings.ebay_browse_client_secret or settings.ebay_client_secret
+
+
+async def _get_app_token() -> str:
+    """Get a cached application token for the Browse API.
+
+    Uses client credentials flow. Always uses ebay_browse_env (defaults to
+    production) so comparable searches return real data even when OAuth is
+    pointed at sandbox.
     """
     global _app_token, _app_token_expiry
     async with _token_lock:
-        # Return cached token if still valid
         if _app_token and _app_token_expiry and datetime.now(UTC) < _app_token_expiry:
             return _app_token
 
-        # Encode client credentials for Basic auth
-        creds = f"{settings.ebay_client_id}:{settings.ebay_client_secret}"
+        creds = f"{_browse_client_id()}:{_browse_client_secret()}"
         basic = base64.b64encode(creds.encode()).decode()
 
-        # Request new token using client credentials flow
         async with httpx.AsyncClient() as client:
             r = await client.post(
-                _TOKEN_URL[settings.ebay_env],
+                _TOKEN_URL[settings.ebay_browse_env],
                 headers={
                     "Authorization": f"Basic {basic}",
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -90,7 +96,6 @@ async def _get_app_token() -> str:
             r.raise_for_status()
             data = r.json()
 
-        # Cache the token with expiry time (refresh 60 seconds early)
         _app_token = data["access_token"]
         _app_token_expiry = datetime.now(UTC) + timedelta(seconds=data["expires_in"] - 60)
         return _app_token
@@ -108,7 +113,7 @@ async def search_comparables(
     """
     # Get valid app token for API access
     token = await _get_app_token()
-    base_url = _BROWSE_BASE[settings.ebay_env]
+    base_url = _BROWSE_BASE[settings.ebay_browse_env]
 
     # Shorten query: strip parentheticals and limit to 6 words so eBay returns
     # actual product matches rather than accessories or 0 results.
