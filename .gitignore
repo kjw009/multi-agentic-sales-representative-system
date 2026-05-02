@@ -116,3 +116,5 @@ datasets/marketing_sample_for_ebay_com-ebay_com_product__20210101_20210331__30k_
 *.csv
 AGENTS.md
 notebooks/output/ebay_playwright_features.parquet
+notebooks/00_ebay_listings_scraper.ipynb
+notebooks/00_source_sold_listing.ipynb
