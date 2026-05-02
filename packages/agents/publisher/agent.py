@@ -31,6 +31,7 @@ from packages.platform_adapters.ebay.sell import (
     create_inventory_item,
     create_offer,
     ensure_business_policies,
+    ensure_merchant_location,
     get_seller_token,
     get_suggested_category,
     publish_offer,
@@ -121,8 +122,9 @@ async def run(
             logger.warning("No category suggestion — using default 'Other' category")
             category_id = "99"  # eBay "Everything Else > Other"
 
-        # Step 5: Ensure business policies
+        # Step 5: Ensure business policies and merchant location
         policies = await ensure_business_policies(token)
+        location_key = await ensure_merchant_location(token)
 
         # Step 6: Create offer
         offer_result = await create_offer(
@@ -131,10 +133,19 @@ async def run(
             category_id=category_id,
             policies=policies,
             token=token,
+            merchant_location_key=location_key,
         )
 
-        # Step 7: Publish offer
-        publish_result = await publish_offer(offer_result.offer_id, token)
+        # Step 7: Publish offer (Trading API fallback handles Item.Country in sandbox)
+        publish_result = await publish_offer(
+            offer_result.offer_id,
+            token,
+            item=item,
+            price=pricing.recommended_price,
+            category_id=category_id,
+            policies=policies,
+            image_urls=image_urls,
+        )
 
         # Step 8: Update listing record
         listing.external_id = publish_result.listing_id
