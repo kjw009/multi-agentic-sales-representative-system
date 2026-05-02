@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api, PricingResult } from "@/lib/api";
 
 interface Message {
@@ -122,14 +122,39 @@ function PricingSpinner() {
   );
 }
 
-export default function ChatPage() {
+/* ── Toast notification ────────────────────────────────────────────── */
+
+function Toast({ message, type, onClose }: { message: string; type: "success" | "error" | "info"; onClose: () => void }) {
+  const bg = type === "success" ? "bg-emerald-600" : type === "error" ? "bg-rose-600" : "bg-blue-600";
+
+  useEffect(() => {
+    const t = setTimeout(onClose, 5000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  return (
+    <div className={`fixed top-4 right-4 z-50 ${bg} text-white rounded-xl px-5 py-3 shadow-lg flex items-center gap-3 animate-[slideIn_0.3s_ease-out]`}>
+      <span className="text-sm font-medium">{message}</span>
+      <button onClick={onClose} className="text-white/70 hover:text-white text-lg leading-none">&times;</button>
+    </div>
+  );
+}
+
+/* ── Main page ─────────────────────────────────────────────────────── */
+
+function ChatPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
   const [itemId, setItemId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [connectingEbay, setConnectingEbay] = useState(false);
+
+  // eBay connection state
+  const [ebayConnected, setEbayConnected] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
   // Pricing state
   const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
@@ -149,7 +174,27 @@ export default function ChatPage() {
       role: "assistant",
       content: "Hi! I'm your AI selling assistant. Tell me about an item you'd like to sell — what is it?",
     }]);
-  }, [router]);
+
+    // Check eBay connection status on mount
+    api.ebayStatus()
+      .then((res) => setEbayConnected(res.connected))
+      .catch(() => {}); // Silently fail — not critical
+
+    // Handle eBay OAuth callback query params
+    const ebayParam = searchParams.get("ebay");
+    if (ebayParam === "connected") {
+      setEbayConnected(true);
+      setToast({ message: "eBay account connected successfully!", type: "success" });
+      // Clean up the URL without reloading
+      window.history.replaceState({}, "", "/chat");
+    } else if (ebayParam === "declined") {
+      setToast({ message: "eBay connection was declined. You can try again anytime.", type: "info" });
+      window.history.replaceState({}, "", "/chat");
+    } else if (ebayParam === "error") {
+      setToast({ message: "Something went wrong connecting to eBay. Please try again.", type: "error" });
+      window.history.replaceState({}, "", "/chat");
+    }
+  }, [router, searchParams]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -189,7 +234,7 @@ export default function ChatPage() {
       const { authorization_url } = await api.ebayConnect();
       window.location.href = authorization_url;
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to start eBay connection");
+      setToast({ message: err instanceof Error ? err.message : "Failed to start eBay connection", type: "error" });
       setConnectingEbay(false);
     }
   }
@@ -259,17 +304,32 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen bg-gray-50">
+      {/* Toast notification */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
       {/* Sidebar */}
       <aside className="w-56 bg-white border-r border-gray-200 flex flex-col p-4 gap-3 shrink-0">
         <p className="font-semibold text-sm">SalesRep</p>
         <div className="flex-1" />
-        <button
-          onClick={handleConnectEbay}
-          disabled={connectingEbay}
-          className="w-full text-sm bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
-          {connectingEbay ? "Redirecting…" : "Connect eBay"}
-        </button>
+
+        {/* eBay connection button / status */}
+        {ebayConnected ? (
+          <div className="w-full text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <span>eBay Connected</span>
+          </div>
+        ) : (
+          <button
+            onClick={handleConnectEbay}
+            disabled={connectingEbay}
+            className="w-full text-sm bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {connectingEbay ? "Redirecting…" : "Connect eBay"}
+          </button>
+        )}
+
         <button
           onClick={logout}
           className="w-full text-left text-sm text-gray-400 hover:text-gray-700 px-1 transition-colors"
@@ -369,5 +429,13 @@ export default function ChatPage() {
         </aside>
       )}
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-gray-50 text-gray-400">Loading…</div>}>
+      <ChatPageInner />
+    </Suspense>
   );
 }

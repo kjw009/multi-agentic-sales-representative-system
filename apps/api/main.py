@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from apps.api.routers import auth, ebay, health, images, intake, internal
+from apps.api.routers import auth, ebay, health, images, intake, internal, pages
 from packages.config import configure_tracing
 
 # Activate LangSmith tracing before any LangGraph graph is compiled
@@ -17,3 +17,4 @@ app.include_router(ebay.router)
 app.include_router(intake.router)
 app.include_router(images.router)
 app.include_router(internal.router)
+app.include_router(pages.router)
