@@ -41,6 +41,8 @@ dependencies = [
   "scikit-learn>=1.8.0",
   "sentence-transformers>=3.3",
   "transformers>=4.46",
+  "lightgbm>=4.6.0",
+  "optuna>=4.8.0",
 ]
 
 [project.optional-dependencies]
