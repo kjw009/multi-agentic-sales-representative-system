@@ -1,9 +1,11 @@
 import json
+import logging
 import secrets
 import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,11 +21,16 @@ from packages.platform_adapters.ebay.oauth import (
     token_expiry,
 )
 
+logger = logging.getLogger(__name__)
+
 # APIRouter for eBay OAuth endpoints
 router = APIRouter(prefix="/auth/ebay", tags=["ebay-oauth"])
 
 # Time-to-live for OAuth state nonce in Redis (10 minutes)
 _STATE_TTL = 600  # seconds — how long the state nonce lives in Redis
+
+# Frontend page the seller is redirected to after OAuth completes
+_FRONTEND_CHAT = "/chat"
 
 
 def _redis():
@@ -65,14 +72,28 @@ async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict:  #
 
 @router.get("/callback")
 async def ebay_callback(
-    code: str = Query(...),
-    state: str = Query(...),
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    declined: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict:
+) -> RedirectResponse:
     """
     eBay redirects the seller's browser here after consent.
-    Validates the state nonce, exchanges the code, encrypts and persists the tokens.
+
+    On success: validates state, exchanges the code, encrypts tokens,
+    and redirects back to the frontend chat page with ?ebay=connected.
+
+    On decline: eBay redirects without a code. We redirect to ?ebay=declined.
     """
+    # Handle declined consent
+    if declined or code is None:
+        logger.info("eBay OAuth consent was declined")
+        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=declined", status_code=302)
+
+    if state is None:
+        logger.warning("eBay OAuth callback received without state parameter")
+        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
+
     r = _redis()
     try:
         # Retrieve and delete the stored state data atomically
@@ -81,9 +102,8 @@ async def ebay_callback(
         await r.aclose()
 
     if stored is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state"
-        )
+        logger.warning("eBay OAuth callback received with invalid or expired state")
+        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
 
     # Parse stored data to get seller ID and code verifier
     data = json.loads(stored)
@@ -94,10 +114,11 @@ async def ebay_callback(
         # Exchange authorization code for access token
         token_data = await exchange_code(code, code_verifier)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"eBay token exchange failed: {exc.response.text}",
-        ) from exc
+        logger.error("eBay token exchange failed: %s", exc.response.text)
+        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
+    except Exception:
+        logger.exception("eBay token exchange failed unexpectedly")
+        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
 
     # Extract token details
     access_token: str = token_data["access_token"]
@@ -125,5 +146,31 @@ async def ebay_callback(
     # Commit the changes to the database
     await session.commit()
 
-    # Return success response with expiry info
-    return {"status": "connected", "platform": "ebay", "expires_at": expires_at.isoformat()}
+    logger.info("eBay OAuth tokens saved for seller %s", seller_id)
+
+    # Redirect back to the frontend chat page with success indicator
+    return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=connected", status_code=302)
+
+
+@router.get("/status")
+async def ebay_status(
+    seller: Seller = Depends(get_current_seller),  # noqa: B008
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict:
+    """
+    Check whether the current seller has a connected eBay account.
+    Returns connection status and token expiry if connected.
+    """
+    cred = await session.scalar(
+        select(PlatformCredential).where(
+            PlatformCredential.seller_id == seller.id,
+            PlatformCredential.platform == Platform.ebay,
+        )
+    )
+    if cred is None:
+        return {"connected": False}
+
+    return {
+        "connected": True,
+        "expires_at": cred.expires_at.isoformat() if cred.expires_at else None,
+    }
