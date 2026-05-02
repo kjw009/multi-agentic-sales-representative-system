@@ -40,15 +40,6 @@ _API_BASE = {
     "production": "https://api.ebay.com",
 }
 
-# eBay marketplace → site ID mapping for image upload
-_SITE_ID_MAP = {
-    "EBAY_US": "0",
-    "EBAY_GB": "3",
-    "EBAY_AU": "15",
-    "EBAY_DE": "77",
-    "EBAY_FR": "71",
-}
-
 # Condition mapping: internal condition → eBay condition enum
 _CONDITION_MAP = {
     "new": "NEW",
@@ -203,16 +194,12 @@ def _auth_headers(token: SellerToken) -> dict[str, str]:
 
 
 async def upload_image(image_url: str, token: SellerToken) -> str:
-    """Upload an image to eBay using an external URL reference.
+    """Return the image URL for use in eBay inventory item payloads.
 
-    Uses eBay's Inventory API to host the image. Returns the eBay-hosted image URL.
-    For external URLs, eBay will fetch and host the image itself.
+    eBay fetches and hosts images from external URLs automatically when the
+    inventory item is created, so no separate upload step is needed.
     """
-    # eBay supports referencing external image URLs directly in inventory items
-    # The Inventory API accepts image URLs and eBay hosts copies automatically
-    # We just need to return the URL for use in the inventory item payload
-    # eBay will validate and fetch the image when the inventory item is created
-    logger.info("Image URL prepared for eBay upload: %s", image_url[:80])
+    logger.info("Image URL prepared for eBay: %s", image_url[:80])
     return image_url
 
 
@@ -901,12 +888,9 @@ async def update_offer_price(offer_id: str, new_price: float, token: SellerToken
 async def end_listing(listing_id: str, reason: str, token: SellerToken) -> None:
     """End/withdraw an eBay listing.
 
-    Uses the Inventory API to withdraw the offer, effectively ending the listing.
-    Reason is logged but eBay's API uses offer withdrawal rather than explicit end reasons.
+    Uses the Inventory API offer withdraw endpoint. Reason is logged locally;
+    eBay's REST API does not accept an end reason on withdrawal.
     """
-    # The Inventory API approach: withdraw the offer
-    # First find the offer by listing ID (we'd need the offer_id in practice)
-    # For now, use the Trading API's EndItem approach via REST
     url = f"{_base()}/sell/inventory/v1/offer/{listing_id}/withdraw"
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
