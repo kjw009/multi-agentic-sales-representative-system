@@ -94,12 +94,12 @@
     "reg_lambda": 0.8082000815931292
   },
   "val_metrics": {
-    "rmse_log": 0.62,
-    "rmse_usd": 175.2507,
-    "mae_usd": 58.4121,
-    "mape_pct": 63.4921,
-    "r2": 0.7901,
-    "within_20_pct": 38.5237
+    "rmse_log": 0.6604,
+    "rmse_usd": 173.402,
+    "mae_usd": 62.1128,
+    "mape_pct": 78.5789,
+    "r2": 0.7607,
+    "within_20_pct": 35.0302
   },
   "inference_encodings": {
     "brand": {
