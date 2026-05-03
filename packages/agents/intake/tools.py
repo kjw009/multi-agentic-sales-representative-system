@@ -2,18 +2,156 @@
 Tools for the intake agent to interact with sellers and manage item data.
 
 Defines OpenAI function-calling schemas for tools like asking questions,
-recording attributes, requesting images, and marking intake complete.
-Includes execution logic for these tools with database operations.
+recording attributes, requesting images, generating listings, and marking
+intake complete.  Includes execution logic for these tools with database
+operations.
 """
 
+import json
+import logging
 import uuid
 from decimal import Decimal, InvalidOperation
 
+import openai
 from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.config import settings
 from packages.db.models import Item, ItemCondition, ItemStatus
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Category taxonomy — used for inference hints in the prompt and validation
+# ---------------------------------------------------------------------------
+
+CATEGORY_LIST = [
+    "Laptops",
+    "Phones",
+    "Tablets",
+    "Desktop Computers",
+    "Monitors",
+    "Trainers",
+    "Shoes",
+    "Clothing",
+    "Watches",
+    "Jewellery",
+    "Headphones",
+    "Speakers",
+    "Cameras",
+    "Camera Lenses",
+    "Gaming Consoles",
+    "Video Games",
+    "Furniture",
+    "Home & Garden",
+    "Books",
+    "Musical Instruments",
+    "Bicycles",
+    "Fitness Equipment",
+    "Bags & Luggage",
+    "Toys & Games",
+    "Kitchen Appliances",
+    "Beauty & Fragrance",
+    "Car Parts",
+    "Tools & DIY",
+    "Art & Collectibles",
+    "Other",
+]
+
+# Enrichment hints by category — tells the agent which questions matter most
+CATEGORY_ENRICHMENT_HINTS: dict[str, list[str]] = {
+    "Laptops": [
+        "brand",
+        "model",
+        "processor",
+        "RAM",
+        "storage (SSD/HDD)",
+        "screen size",
+        "battery health",
+        "charger included",
+    ],
+    "Phones": [
+        "brand",
+        "model",
+        "storage capacity",
+        "colour",
+        "battery health",
+        "screen condition",
+        "unlocked or network-locked",
+        "charger/box included",
+    ],
+    "Tablets": [
+        "brand",
+        "model",
+        "storage capacity",
+        "screen size",
+        "cellular or Wi-Fi only",
+        "accessories included",
+    ],
+    "Trainers": [
+        "brand",
+        "model",
+        "UK size",
+        "colour",
+        "sole condition",
+        "box included",
+    ],
+    "Shoes": [
+        "brand",
+        "style",
+        "UK size",
+        "colour",
+        "material",
+        "sole condition",
+    ],
+    "Clothing": [
+        "brand",
+        "garment type",
+        "size",
+        "colour",
+        "material",
+        "gender",
+    ],
+    "Watches": [
+        "brand",
+        "model",
+        "movement type (quartz/automatic)",
+        "case size",
+        "strap material",
+        "box/papers included",
+    ],
+    "Headphones": [
+        "brand",
+        "model",
+        "over-ear/in-ear/on-ear",
+        "wired/wireless",
+        "noise cancelling",
+        "case included",
+    ],
+    "Cameras": [
+        "brand",
+        "model",
+        "sensor type (full-frame/APS-C)",
+        "megapixels",
+        "lens included",
+        "shutter count",
+    ],
+    "Gaming Consoles": [
+        "brand",
+        "model/edition",
+        "storage capacity",
+        "controllers included",
+        "games included",
+    ],
+    "Furniture": [
+        "type (sofa/table/chair etc.)",
+        "material",
+        "dimensions",
+        "colour",
+        "assembly required",
+    ],
+}
 
 # OpenAI function-calling schema definitions for intake agent tools
 TOOL_DEFINITIONS = [
@@ -22,13 +160,17 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "ask_user_question",
             "description": (
-                "Ask the seller a follow-up question to gather missing information. "
-                "Ask one question at a time."
+                "Ask the seller a follow-up question to gather missing or enrichment information. "
+                "Ask one question at a time. Use this for both missing required fields AND "
+                "for enrichment details that will improve the listing title/description."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "question": {"type": "string", "description": "The question to ask the seller."}
+                    "question": {
+                        "type": "string",
+                        "description": "The question to ask the seller.",
+                    }
                 },
                 "required": ["question"],
             },
@@ -40,7 +182,10 @@ TOOL_DEFINITIONS = [
             "name": "record_attribute",
             "description": (
                 "Save a piece of information about the item. "
-                "Call this for every attribute the seller mentions before asking follow-up questions."
+                "Call this for every attribute the seller mentions — including inferred ones "
+                "like category — before asking follow-up questions. "
+                "You MUST infer the category from context whenever possible rather than "
+                "asking the seller."
             ),
             "parameters": {
                 "type": "object",
@@ -71,6 +216,42 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "generate_listing",
+            "description": (
+                "Generate an optimised eBay listing title and description from the "
+                "raw details the seller has provided. Call this once you have gathered "
+                "enough details (item type, brand, key specs, condition) but BEFORE "
+                "calling mark_intake_complete. The generated title and description "
+                "will be saved to the item automatically. Present the result to the "
+                "seller for approval."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "raw_title": {
+                        "type": "string",
+                        "description": "The seller's raw item description/name as they described it.",
+                    },
+                    "details": {
+                        "type": "string",
+                        "description": (
+                            "All details gathered so far in a structured summary: "
+                            "brand, model, size, colour, condition, age, defects, "
+                            "included accessories, specs, etc."
+                        ),
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "The inferred or recorded category of the item.",
+                    },
+                },
+                "required": ["raw_title", "details", "category"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "request_image",
             "description": "Ask the seller to upload a photo of the item.",
             "parameters": {
@@ -90,8 +271,10 @@ TOOL_DEFINITIONS = [
         "function": {
             "name": "mark_intake_complete",
             "description": (
-                "Mark intake as complete once you have recorded name, category, condition, "
-                "description, and have asked for at least one image."
+                "Mark intake as complete once you have: (1) recorded all attributes, "
+                "(2) called generate_listing to produce an optimised title/description, "
+                "(3) the seller has approved or you have presented the listing, and "
+                "(4) asked for at least one image."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -103,6 +286,29 @@ _PROTECTED = {"id", "seller_id", "status", "created_at", "updated_at"}
 
 # Item fields that are stored as strings
 _STRING_FIELDS = {"name", "brand", "category", "subcategory", "description"}
+
+# ---------------------------------------------------------------------------
+# Listing generation prompt
+# ---------------------------------------------------------------------------
+
+_LISTING_GEN_SYSTEM = """\
+You are an eBay listing optimisation expert. Given raw item details, produce a \
+professional listing title and description that maximises search visibility and \
+buyer confidence.
+
+Rules:
+- Title: max 80 characters, include brand + model + key specs + condition hint. \
+  Use eBay SEO best practices (no ALL CAPS, no special characters like *!~).
+- Description: 2-4 sentences. Lead with what the item is, then condition/cosmetic \
+  notes, then what's included. Be factual and concise — no hype or filler.
+- Output ONLY valid JSON: {"title": "...", "description": "..."}
+- Do NOT invent details the seller has not provided.\
+"""
+
+
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
 
 
 async def _get_or_create_item(
@@ -132,6 +338,58 @@ async def _get_or_create_item(
     session.add(item)
     await session.flush()
     return item
+
+
+# ---------------------------------------------------------------------------
+# Listing generation via OpenAI
+# ---------------------------------------------------------------------------
+
+
+@traceable(name="generate_listing_call", run_type="llm")
+async def _generate_listing_text(
+    raw_title: str,
+    details: str,
+    category: str,
+) -> tuple[str, str]:
+    """Call OpenAI to generate an optimised title and description.
+
+    Returns (title, description).
+    """
+    client = openai.AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url or None,
+    )
+
+    user_content = (
+        f"Category: {category}\n"
+        f"Seller's description: {raw_title}\n"
+        f"Details:\n{details}"
+    )
+
+    response = await client.chat.completions.create(
+        model=settings.model_agent1,
+        messages=[
+            {"role": "system", "content": _LISTING_GEN_SYSTEM},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.3,
+    )
+
+    text = (response.choices[0].message.content or "").strip()
+
+    # Parse JSON from the response — handle possible markdown fencing
+    if text.startswith("```"):
+        # Strip ```json ... ``` wrapping
+        lines = text.split("\n")
+        text = "\n".join(line for line in lines if not line.strip().startswith("```"))
+
+    parsed = json.loads(text)
+    return parsed["title"], parsed["description"]
+
+
+# ---------------------------------------------------------------------------
+# Tool executor
+# ---------------------------------------------------------------------------
 
 
 @traceable(name="intake_execute_tool", run_type="tool")
@@ -173,7 +431,10 @@ async def execute_tool(
                 item.condition = ItemCondition(value)
             except ValueError:
                 valid = [e.value for e in ItemCondition]
-                return f"Error: invalid condition '{value}'. Must be one of: {valid}", item_id
+                return (
+                    f"Error: invalid condition '{value}'. Must be one of: {valid}",
+                    item_id,
+                )
         elif field == "age_months":
             try:
                 # Parse and set age as integer
@@ -189,6 +450,40 @@ async def execute_tool(
 
         await session.flush()
         return f"Saved {field} = {value!r}", item.id
+
+    if tool_name == "generate_listing":
+        raw_title = tool_input["raw_title"]
+        details = tool_input["details"]
+        category = tool_input.get("category", "")
+
+        # Get or create the item
+        item = await _get_or_create_item(seller_id, item_id, session)
+
+        try:
+            title, description = await _generate_listing_text(
+                raw_title=raw_title,
+                details=details,
+                category=category,
+            )
+        except Exception:
+            logger.exception("Listing generation failed")
+            return (
+                "I had trouble generating the listing. Let me try a different approach — "
+                "could you give me a short summary of the item in your own words?",
+                item.id,
+            )
+
+        # Save the generated title and description
+        item.name = title
+        item.description = description
+        await session.flush()
+
+        return (
+            f"Generated listing:\n\n"
+            f"**Title:** {title}\n\n"
+            f"**Description:** {description}\n\n"
+            f"Please present this to the seller and ask if they'd like any changes."
+        ), item.id
 
     if tool_name == "mark_intake_complete":
         if not item_id:
