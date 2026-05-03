@@ -338,8 +338,8 @@ async def _collect_comparables(
         seen_ids.update(c.item_id for c in raw)
 
         if not new_candidates:
-            logger.info("Round %d returned no new candidates — stopping", round_num)
-            break
+            logger.info("Round %d returned no new candidates — continuing to next round", round_num)
+            continue
 
         # ── LLM relevance gate ─────────────────────────────────────────────
         valid, rejected = await validate_comparables(
