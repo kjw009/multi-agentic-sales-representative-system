@@ -29,7 +29,7 @@ router = APIRouter(prefix="/auth/ebay", tags=["ebay-oauth"])
 _STATE_TTL = 600  # seconds — how long the state nonce lives in Redis
 
 # Frontend page the seller is redirected to after OAuth completes
-_FRONTEND_CHAT = "/chat"
+_FRONTEND_CHAT = "http://localhost:3000/chat"
 
 
 def _redis():

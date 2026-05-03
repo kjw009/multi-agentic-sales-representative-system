@@ -21,6 +21,13 @@ Comparable collection uses a multi-round adaptive strategy:
 import json
 import logging
 import os
+
+# Prevent segfault from OpenMP conflict between LightGBM and PyTorch (sentence_transformers).
+# Both ship their own libomp on macOS; LightGBM's predict crashes if a second OpenMP runtime
+# is already loaded. Capping to 1 thread avoids the conflict with no meaningful perf impact
+# for single-item inference.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import pickle
 import statistics
 import uuid
@@ -63,6 +70,7 @@ _PCA_DESC: object | None = None
 try:
     with open(_MODEL_PATH, "rb") as _f:
         _MODEL = pickle.load(_f)
+    _MODEL.set_params(n_jobs=1)  # prevent OpenMP thread-count conflict with torch/sentence-transformers
     with open(_META_PATH) as _f:
         _META = json.load(_f)
     with open(_PCA_TITLE_PATH, "rb") as _f:

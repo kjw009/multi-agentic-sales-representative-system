@@ -149,6 +149,7 @@ async def validate_comparables(
         client = openai.AsyncOpenAI(
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url or None,
+            timeout=15.0,
         )
         response = await client.chat.completions.create(
             model=settings.model_agent2,
