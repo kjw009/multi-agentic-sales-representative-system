@@ -1,8 +1,14 @@
 """
-LangGraph implementation for the intake agent.
+LangGraph implementation for the intake agent (v2).
 
 Defines the state machine that processes seller messages, uses OpenAI function calling
 to gather item information through tools, and manages conversation flow until intake is complete.
+
+v2 changes:
+- Category inference from item name (no longer asks the seller)
+- Enrichment-first questioning (probes for specs/details, not "write a description")
+- AI-generated listing title & description via generate_listing tool
+- Seller approval step before marking intake complete
 """
 
 import json
@@ -16,39 +22,94 @@ from langgraph.graph import END, StateGraph
 from langsmith import traceable
 from sqlalchemy import func, select
 
-from packages.agents.intake.tools import TOOL_DEFINITIONS, execute_tool
+from packages.agents.intake.tools import (
+    CATEGORY_ENRICHMENT_HINTS,
+    CATEGORY_LIST,
+    TOOL_DEFINITIONS,
+    execute_tool,
+)
 from packages.config import settings
 from packages.db.models import Item, ItemCondition, ItemImage, ItemStatus
 
 logger = logging.getLogger(__name__)
 
-# System prompt instructing the AI on how to gather item information from sellers
-SYSTEM_PROMPT = """\
-You are an AI assistant helping sellers list second-hand items for sale on eBay.
+_CATEGORIES_STR = ", ".join(CATEGORY_LIST)
 
-Your goal is to gather all the information needed to create a great listing. Required:
-- name: what the item is (e.g. "Nike Air Max 90 trainers size 10")
-- category: product category (e.g. "Trainers", "Laptops", "Coffee Tables")
-- condition: must be exactly one of: new, like_new, good, fair, poor
-- description: 2-3 sentences about the item
+SYSTEM_PROMPT = f"""\
+You are an AI assistant helping sellers create optimised eBay listings for \
+second-hand items. Your goal is to gather enough detail to produce an accurate, \
+search-friendly listing title and description that will help the pricing agent \
+(downstream) determine a fair market price.
 
-Optional but useful:
-- brand
-- subcategory
-- age_months (how old the item is)
-- seller_floor_price (the minimum price they will accept)
+═══ CATEGORY INFERENCE ═══
+When the seller describes their item, IMMEDIATELY infer the category from \
+context and record it using record_attribute. Common categories: {_CATEGORIES_STR}.
+- "Nike Air Max 90 trainers" → category = "Trainers"
+- "MacBook Pro 2021" → category = "Laptops"
+- "Samsung Galaxy S24" → category = "Phones"
+- "Bose QuietComfort 45" → category = "Headphones"
+Only ask the seller to confirm the category if it is genuinely ambiguous \
+(e.g. "I want to sell some electronics" — could be anything).
 
-How to behave:
-1. When the seller describes their item, immediately call record_attribute for every piece of \
-information they have given you — do not ask questions you already have the answer to.
-2. If required fields are still missing, call ask_user_question with one clear question.
-3. Once name, category, condition, and description are all recorded, call request_image \
-to ask for a photo.
-4. Once all required fields are saved and a photo has been requested, call mark_intake_complete.
+═══ BRAND & CONDITION INFERENCE ═══
+Also infer the brand from the item name when obvious (e.g. "Nike Air Max" → \
+brand = "Nike"). If the seller mentions condition clues like "barely used" or \
+"has a scratch", infer the condition grade and record it.
 
-Be friendly and concise. Never mention "floor price" — just ask "Do you have a minimum \
-price in mind?" if you want that information.\
+═══ RECORDING ATTRIBUTES ═══
+Call record_attribute for EVERY piece of information the seller provides or \
+you can infer — do this immediately, before asking any follow-up questions. \
+Record all of: name, brand, category, subcategory, condition — as soon as \
+you can determine them.
+
+═══ ENRICHMENT QUESTIONS ═══
+Your job is NOT to ask the seller to "write a description". Instead, ask \
+targeted questions about the item's key attributes so YOU can generate an \
+excellent listing. Questions should be relevant to the category:
+- Electronics: storage, RAM, screen size, battery health, charger included?
+- Clothing/Shoes: size, colour, material, sole condition (shoes)?
+- Furniture: dimensions, material, colour?
+- General: cosmetic defects, included accessories, reason for selling?
+
+Ask ONE question at a time. Keep it conversational and friendly. Aim for \
+2-4 enrichment questions total — enough to write a strong listing, but not \
+so many that the seller gets frustrated.
+
+═══ WORKFLOW ═══
+Follow this exact sequence:
+1. Seller describes their item → immediately record_attribute for every fact \
+   you can extract or infer (name, category, brand, condition, etc.).
+2. Ask 2-4 enrichment questions to gather key specs and details.
+3. Once you have enough detail, call generate_listing to produce an \
+   optimised title and description. This saves them to the database.
+4. Present the generated title and description to the seller. Ask if they'd \
+   like any changes. If they request changes, call generate_listing again.
+5. Once the seller approves (or if the listing looks good), call request_image \
+   to ask for photos.
+6. After the image request, call mark_intake_complete.
+
+═══ RULES ═══
+- Be friendly and concise.
+- Never mention "floor price" — say "Do you have a minimum price in mind?" \
+  if you want that information.
+- Never ask the seller to "write a description" — you generate it.
+- If the seller says something like "looks good" or "that's fine" after you \
+  present the generated listing, proceed to request_image.
+- If the seller provides all details upfront in one message, you can skip \
+  enrichment questions and go straight to generate_listing.\
 """
+
+
+def _enrichment_context(category: str) -> str:
+    """Return a hint string about what enrichment questions to ask for a category."""
+    hints = CATEGORY_ENRICHMENT_HINTS.get(category)
+    if not hints:
+        return ""
+    return (
+        f"\n\nFor items in the '{category}' category, prioritise asking about: "
+        + ", ".join(hints)
+        + "."
+    )
 
 
 class IntakeState(TypedDict):
@@ -75,26 +136,46 @@ def _missing_fields(item: Item) -> list[str]:
     return missing
 
 
-async def _plan_next_step(session, item_id: uuid.UUID | None) -> tuple[str | None, bool, bool]:
+async def _plan_next_step(
+    session, item_id: uuid.UUID | None
+) -> tuple[str | None, bool, bool]:
     if item_id is None:
         return None, False, False
 
     item = await session.scalar(select(Item).where(Item.id == item_id))
     if item is None:
-        return "I couldn't find the item we were discussing. Please try that again.", False, False
+        return (
+            "I couldn't find the item we were discussing. Please try that again.",
+            False,
+            False,
+        )
 
     missing = _missing_fields(item)
     if missing:
+        # If only description/name missing, defer to LLM so it calls generate_listing
+        if missing == ["description"]:
+            return None, False, False
+        if missing == ["name"]:
+            return None, False, False
+        if set(missing) == {"name", "description"}:
+            return None, False, False
+
         prompts = {
-            "name": "What is the item name?",
-            "category": "Which category does it belong to? For example: Laptops, Trainers, or Coffee Tables.",
-            "condition": "What is the condition? Choose from: new, like_new, good, fair, or poor.",
-            "description": "Please give me a short 2-3 sentence description of the item and its condition.",
+            "name": "What item are you looking to sell?",
+            "category": "What category does this item belong to? For example: Laptops, Trainers, Watches.",
+            "condition": "What condition is the item in? Choose from: new, like new, good, fair, or poor.",
+            "description": None,  # Never ask seller for description — we generate it
         }
-        return prompts[missing[0]], False, False
+        for field in missing:
+            prompt = prompts.get(field)
+            if prompt:
+                return prompt, False, False
+        return None, False, False
 
     image_count = await session.scalar(
-        select(func.count()).select_from(ItemImage).where(ItemImage.item_id == item_id)
+        select(func.count())
+        .select_from(ItemImage)
+        .where(ItemImage.item_id == item_id)
     )
     has_image = bool(image_count)
 
@@ -119,15 +200,22 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     Processes the conversation state by calling OpenAI with tools, executing tool calls,
     and updating the state until a terminal response is reached or max iterations hit.
     """
-    # Extract session and IDs from config and state
     session = config["configurable"]["session"]
     seller_id = uuid.UUID(state["seller_id"])
     item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
 
-    # Prepend system message to conversation history
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, *state["messages"]]
+    # Build system message — include enrichment hints if we know the category
+    system_content = SYSTEM_PROMPT
+    if item_id:
+        item = await session.scalar(select(Item).where(Item.id == item_id))
+        if item and item.category:
+            system_content += _enrichment_context(item.category)
 
-    # Initialize OpenAI client
+    messages: list[dict] = [
+        {"role": "system", "content": system_content},
+        *state["messages"],
+    ]
+
     client = openai.AsyncOpenAI(
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url or None,
@@ -136,9 +224,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     complete = False
     needs_image = False
 
-    # Loop up to 10 times for agentic tool calling (safety limit)
     for _ in range(10):
-        # Call OpenAI with current messages and tools
         try:
             response = await client.chat.completions.create(
                 model=settings.model_agent1,
@@ -157,11 +243,9 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
         msg = response.choices[0].message
 
         if not msg.tool_calls:
-            # No tools called, use the response content as final reply
             reply = msg.content or "How can I help you today?"
             break
 
-        # Add assistant message with tool calls to history
         messages.append(
             {
                 "role": "assistant",
@@ -170,18 +254,19 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                     {
                         "id": tc.id,
                         "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
                     }
                     for tc in msg.tool_calls
                 ],
             }
         )
 
-        # Execute each tool call and add results to messages
         terminal_reply: str | None = None
 
         for tc in msg.tool_calls:
-            # Parse tool arguments and execute
             try:
                 tool_input = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
@@ -209,7 +294,8 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 )
             except Exception:
                 logger.exception(
-                    "Intake tool execution failed", extra={"tool_name": tc.function.name}
+                    "Intake tool execution failed",
+                    extra={"tool_name": tc.function.name},
                 )
                 reply = (
                     "I hit a temporary problem saving that. "
@@ -218,7 +304,6 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 terminal_reply = reply
                 break
 
-            # Add tool result to message history
             messages.append(
                 {
                     "role": "tool",
@@ -227,23 +312,27 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 }
             )
 
-            # Check for terminal tool calls that end the conversation
+            # Check for terminal tool calls that end the conversation turn
             if tc.function.name == "request_image":
                 terminal_reply = result_text
                 needs_image = True
             elif tc.function.name == "ask_user_question":
                 terminal_reply = result_text
+            elif tc.function.name == "generate_listing":
+                # Non-terminal: let the LLM present the result to the seller
+                pass
             elif tc.function.name == "mark_intake_complete":
-                terminal_reply = "Great — I have everything I need to prepare your listing!"
+                terminal_reply = (
+                    "Great — I have everything I need to prepare your listing!"
+                )
                 complete = True
 
         if terminal_reply is not None:
-            # Terminal response reached, end the loop
             reply = terminal_reply
             break
 
-        planned_reply, planned_needs_image, planned_complete = await _plan_next_step(
-            session, item_id
+        planned_reply, planned_needs_image, planned_complete = (
+            await _plan_next_step(session, item_id)
         )
         if planned_reply is not None:
             reply = planned_reply
@@ -254,10 +343,8 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     if not reply:
         reply = "Could you tell me a little more about the item?"
 
-    # Remove system message before storing back in state (to save space)
     state_messages = [m for m in messages if m.get("role") != "system"]
 
-    # Return updated state
     return {
         "item_id": str(item_id) if item_id else None,
         "messages": state_messages,
@@ -267,7 +354,6 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     }
 
 
-# Build the LangGraph: single node that processes intake and ends
 _builder: StateGraph = StateGraph(IntakeState)
 _builder.add_node("intake", intake_node)
 _builder.set_entry_point("intake")
