@@ -9,6 +9,13 @@ Determines optimal pricing for items by combining two signals:
 
 The model prediction already incorporates comparable stats as features (dominant
 signal), so the model gets the majority weight in the final blend (60 / 40).
+
+Comparable collection uses a multi-round adaptive strategy:
+  - Round 0: Initial search with category filter + brand-first query.
+  - Round 1: If we have some valid comparables, extract the most common
+    high-signal keywords from their titles and re-search with those.
+  - Round 2+: Fallback broadening (relax condition, use description keywords).
+  Each round's results are LLM-validated before being added to the pool.
 """
 
 import json
@@ -17,7 +24,8 @@ import os
 import pickle
 import statistics
 import uuid
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import UTC, datetime
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -27,8 +35,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from packages.agents.pricing.comparable_filter import (
+    extract_keywords_from_comparables,
+    validate_comparables,
+)
 from packages.db.models import Item, ItemCondition
-from packages.platform_adapters.ebay.browse import search_comparables
+from packages.platform_adapters.ebay.browse import Comparable, get_category_id, search_comparables
 from packages.schemas.agents import ComparableListing, PricingResult
 
 logger = logging.getLogger(__name__)
@@ -102,6 +114,8 @@ def _get_sentence_model():
 
 _DEFAULT_FLOOR_RATIO = 0.70
 _MODEL_WEIGHT = 0.60  # model 60%, live comparable median 40%
+_TARGET_COMPARABLES = 20
+_MAX_SEARCH_ROUNDS = 3
 
 # ---------------------------------------------------------------------------
 # Condition → v3 ordinal  (mirrors notebook CONDITION_ORDINAL)
@@ -167,7 +181,7 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
         desc_pca = _PCA_DESC.transform(desc_emb)[0]
 
         # ── Temporal features from current UTC time ────────────────────────
-        now   = datetime.now(timezone.utc)
+        now   = datetime.now(UTC)
         dow   = now.weekday()
         month = now.month
 
@@ -213,6 +227,148 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Adaptive comparable collection
+# ---------------------------------------------------------------------------
+
+
+def _build_fallback_query(item: Item, round_num: int) -> str:
+    """Build a broader fallback query for rounds where we have zero good comparables.
+
+    Round 2: Pull key nouns/identifiers from the item description + title.
+    Round 3+: Strip down to brand + category only for maximum breadth.
+    """
+    brand = (item.attributes or {}).get("brand", "") if item.attributes else ""
+    category = item.category or ""
+
+    if round_num <= 2:
+        # Extract up to 6 keywords from title + description combined
+        stopwords = {
+            "for", "and", "the", "with", "in", "a", "an", "of", "to",
+            "used", "sale", "selling", "great", "condition",
+        }
+        text = f"{item.name or ''} {item.description or ''}"
+        tokens = [
+            t.lower().strip("\"'.,!?()[]")
+            for t in text.split()
+            if t.lower().strip("\"'.,!?()[]") not in stopwords and len(t) > 2
+        ]
+        word_counts: Counter = Counter(tokens)
+        top = [w for w, _ in word_counts.most_common(6)]
+        if brand and brand.lower() not in top:
+            top = [brand, *top]
+        return " ".join(top[:7])
+
+    # Round 3+: bare category + brand
+    parts = [p for p in [brand, category] if p]
+    return " ".join(parts) if parts else (item.name or "")
+
+
+@traceable(name="collect_comparables", run_type="tool")
+async def _collect_comparables(
+    item: Item,
+    target: int = _TARGET_COMPARABLES,
+    max_rounds: int = _MAX_SEARCH_ROUNDS,
+) -> list[Comparable]:
+    """Collect *target* validated comparables using an adaptive multi-round strategy.
+
+    Round 0  — Primary search with category filter + brand-first query.
+    Round 1  — If we gathered some valid comparables: extract the most frequent
+               high-signal keywords from their titles and re-search using those.
+               (This is the primary refinement path — we learn what eBay's own
+               good results call the product and search with those exact terms.)
+    Round 2+ — If we got zero valid comparables: broaden the query using description
+               keywords or bare brand+category as a last resort.
+
+    All candidates are deduped across rounds and LLM-validated before being kept.
+    """
+    brand = (item.attributes or {}).get("brand") if item.attributes else None
+    condition = str(item.condition) if item.condition else None
+
+    # Resolve eBay category ID once — used across all rounds for category filtering
+    category_id: str | None = None
+    if item.name:
+        try:
+            category_id = await get_category_id(item.name)
+        except Exception:
+            logger.warning("Could not resolve eBay category ID for '%s'", item.name)
+
+    kept: list[Comparable] = []
+    seen_ids: set[str] = set()
+    total_rejected = 0
+
+    for round_num in range(max_rounds):
+        remaining = target - len(kept)
+        if remaining <= 0:
+            break
+
+        # ── Determine query for this round ──────────────────────────────────
+        if round_num == 0:
+            query_override = None  # search_comparables auto-builds the best query
+        elif round_num == 1 and kept:
+            # Good path: derive keywords from the validated comparables' titles
+            query_override = extract_keywords_from_comparables(kept)
+            logger.info("Round 1 adaptive query (from %d valid comps): %r", len(kept), query_override)
+        else:
+            # Fallback: no good comparables yet — broaden
+            query_override = _build_fallback_query(item, round_num)
+            logger.info("Round %d fallback query: %r", round_num, query_override)
+
+        # ── Fetch more than we need so the filter has room to work ──────────
+        fetch_limit = min(remaining * 2, 40)
+
+        # On fallback rounds, relax the condition filter to widen the pool
+        search_condition = condition if round_num < 2 else None
+
+        try:
+            raw = await search_comparables(
+                name=item.name or "",
+                condition=search_condition,
+                limit=fetch_limit,
+                brand=brand,
+                description=item.description,
+                query_override=query_override,
+                category_id=category_id,
+            )
+        except Exception:
+            logger.exception("Browse API call failed on round %d", round_num)
+            break
+
+        # Deduplicate against all comparables seen across rounds
+        new_candidates = [c for c in raw if c.item_id not in seen_ids]
+        seen_ids.update(c.item_id for c in raw)
+
+        if not new_candidates:
+            logger.info("Round %d returned no new candidates — stopping", round_num)
+            break
+
+        # ── LLM relevance gate ─────────────────────────────────────────────
+        valid, rejected = await validate_comparables(
+            item_title=item.name or "",
+            item_category=item.category or "",
+            item_brand=brand,
+            item_description=item.description or "",
+            comparables=new_candidates,
+        )
+
+        kept.extend(valid)
+        total_rejected += len(rejected)
+
+        logger.info(
+            "Round %d: fetched=%d new=%d valid=%d rejected=%d  total_kept=%d/%d",
+            round_num, len(raw), len(new_candidates), len(valid), len(rejected),
+            len(kept), target,
+        )
+
+    if total_rejected:
+        logger.info(
+            "Comparable collection complete: %d kept, %d rejected total",
+            len(kept), total_rejected,
+        )
+
+    return kept[:target]
+
+
+# ---------------------------------------------------------------------------
 # Agent entry point
 # ---------------------------------------------------------------------------
 
@@ -242,12 +398,8 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
             min_acceptable_price=0.0,
         )
 
-    raw = await search_comparables(
-        name=row.name,
-        condition=str(row.condition),
-        limit=20,
-    )
-    prices = [c.price for c in raw if c.price > 0]
+    validated = await _collect_comparables(row, target=_TARGET_COMPARABLES)
+    prices = [c.price for c in validated if c.price > 0]
     comparable_median = statistics.median(prices) if prices else None
 
     model_pred = _model_predict(row, prices)
@@ -295,8 +447,9 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
             condition=c.condition,
             item_id=c.item_id,
             listing_url=c.listing_url,
+            relevance="validated",
         )
-        for c in raw
+        for c in validated
     ]
 
     return PricingResult(

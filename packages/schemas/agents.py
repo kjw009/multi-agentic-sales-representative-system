@@ -11,6 +11,7 @@ class ComparableListing(BaseModel):
     condition: str
     item_id: str
     listing_url: str
+    relevance: str = "validated"  # "validated" | "unfiltered" (fallback path, LLM unavailable)
 
 
 class PricingResult(BaseModel):
