@@ -64,6 +64,12 @@ class ListingStatus(enum.StrEnum):
     error = "error"  # Failed to publish
 
 
+class MessageDirection(enum.StrEnum):
+    # Direction of eBay buyer message
+    inbound = "inbound"
+    outbound = "outbound"
+
+
 # --- MODELS ---
 
 
@@ -401,3 +407,75 @@ class Listing(Base):
     # Relationships
     item: Mapped["Item"] = relationship("Item", back_populates="listings")
     seller: Mapped["Seller"] = relationship("Seller", back_populates="listings")
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Context
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    listing_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("listings.id", ondelete="SET NULL"),
+        index=True,
+    )
+
+    buyer_handle: Mapped[str] = mapped_column(String(255), nullable=False)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    # Relationships
+    messages: Mapped[list["BuyerMessage"]] = relationship(
+        "BuyerMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="BuyerMessage.received_at",
+    )
+
+
+class BuyerMessage(Base):
+    __tablename__ = "buyer_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # ID from eBay
+    message_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    
+    direction: Mapped[MessageDirection] = mapped_column(
+        Enum(MessageDirection, name="message_direction"),
+        nullable=False,
+    )
+    
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # Relationships
+    conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
