@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     ebay_ru_name: str = ""  # RuName from eBay Developer Portal (used as redirect_uri in OAuth requests)
     ebay_redirect_uri: str = ""  # actual callback URL (registered under the RuName)
     ebay_marketplace_id: str = "EBAY_GB"
+    ebay_verification_token: str = ""  # for Event Notification API endpoint validation
+    ebay_webhook_endpoint: str = ""  # public URL where the webhook will be hosted
 
     # Browse API credentials — can point at production even while OAuth uses sandbox
     # (sandbox Browse index is sparse; production gives real comparable data)
