@@ -39,6 +39,13 @@ _TOKEN_URL = {
 # Public scope required for Browse API (no user auth needed)
 _BROWSE_SCOPE = "https://api.ebay.com/oauth/api_scope"
 
+# Words to strip from search queries — eBay-specific noise that dilutes precision
+_QUERY_NOISE_WORDS = {
+    "for", "sale", "selling", "my", "the", "a", "an", "and", "or", "of", "in",
+    "with", "used", "great", "condition", "grade", "good", "nice", "old",
+    "item", "things", "stuff", "see", "photos", "pics", "pictures",
+}
+
 
 @dataclass
 class Comparable:
@@ -134,36 +141,93 @@ async def get_category_id(title: str) -> str | None:
                     "Browse API category lookup: %s (%s)", cat_name, cat_id
                 )
                 return cat_id
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return None
+
+
+def _build_search_query(
+    name: str,
+    brand: str | None = None,
+    query_override: str | None = None,
+) -> str:
+    """Build a precise eBay search query from item details.
+
+    Strategy:
+    - If query_override is supplied (adaptive re-search), use it directly.
+    - Otherwise: strip parentheticals and noise words, put brand first if
+      available, then take the top 8 remaining tokens from the title.
+      This produces "Apple MacBook Pro 16 M1 2021" rather than the raw
+      "MacBook Pro 16-inch 2021 Apple M1 Pro Chip" which eBay may parse loosely.
+    """
+    if query_override:
+        return query_override.strip()
+
+    # Strip parentheticals (e.g. "(2021)") which confuse eBay
+    cleaned = re.sub(r"\(.*?\)", "", name).strip()
+
+    # Tokenise and remove noise words
+    tokens = [
+        t for t in cleaned.split()
+        if t.lower() not in _QUERY_NOISE_WORDS
+    ]
+
+    # Prepend brand if it's not already the first token (case-insensitive)
+    if brand:
+        brand_lower = brand.lower()
+        if not tokens or tokens[0].lower() != brand_lower:
+            tokens = [brand, *tokens]
+
+    # Limit to 8 keywords — enough for specificity, not so many eBay returns 0 results
+    return " ".join(tokens[:8])
 
 
 async def search_comparables(
     name: str,
     condition: str | None = None,
     limit: int = 20,
-) -> list[Comparable]:
+    brand: str | None = None,
+    description: str | None = None,  # reserved for future fallback query construction
+    query_override: str | None = None,
+    category_id: str | None = None,
+) -> list["Comparable"]:
     """Return active eBay listings matching *name* (and optionally *condition*).
 
     Uses the Browse API with an application token (no seller OAuth required).
     Note: the sandbox index is sparse — use ebay_env=production for realistic results.
+
+    Args:
+        name: Item title / name from the seller's listing.
+        condition: Human-readable condition string mapped to eBay condition ID.
+        limit: Number of results to return.
+        brand: Item brand extracted from attributes; prepended to the query for precision.
+        description: Item description (reserved — used by caller for query_override construction).
+        query_override: If set, replaces the auto-built query entirely. Used in
+            adaptive re-search rounds where keywords are derived from prior good comparables.
+        category_id: eBay category ID to filter results. Eliminates cross-category
+            noise (e.g. MacBook cases when searching for MacBooks).
     """
     # Get valid app token for API access
     token = await _get_app_token()
     base_url = _BROWSE_BASE[settings.ebay_browse_env]
 
-    # Shorten query: strip parentheticals and limit to 6 words so eBay returns
-    # actual product matches rather than accessories or 0 results.
-    query = re.sub(r"\(.*?\)", "", name).strip()
-    query = " ".join(query.split()[:6])
+    query = _build_search_query(name, brand=brand, query_override=query_override)
 
     # Build search parameters
     params: dict[str, str | int] = {
         "q": query,
-        "limit": min(limit, 200),  # API limit is 200
+        "limit": min(limit, 200),  # API max is 200
         "sort": "price",
     }
+
+    # Apply category filter when available — this is the single most effective
+    # way to eliminate cross-category noise (accessories, boxes, cases, etc.)
+    if category_id:
+        params["category_ids"] = category_id
+
+    # Map condition to eBay condition filter
+    if condition and condition in _CONDITION_ID_MAP:
+        params["filter"] = f"conditionIds:{{{_CONDITION_ID_MAP[condition]}}}"
 
     # Make API request to search for items
     async with httpx.AsyncClient() as client:
