@@ -217,7 +217,6 @@ async def search_comparables(
     params: dict[str, str | int] = {
         "q": query,
         "limit": min(limit, 200),  # API max is 200
-        "sort": "price",
     }
 
     # Apply category filter when available — this is the single most effective

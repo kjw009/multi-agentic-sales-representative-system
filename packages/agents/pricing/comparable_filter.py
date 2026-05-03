@@ -205,7 +205,7 @@ async def validate_comparables(
 # Keyword extraction from validated comparables
 # ---------------------------------------------------------------------------
 
-def extract_keywords_from_comparables(comparables: list[Comparable], top_n: int = 8) -> str:
+def extract_keywords_from_comparables(comparables: list[Comparable], top_n: int = 5) -> str:
     """Extract the most common high-signal words from validated comparable titles.
 
     Counts word frequency across all kept titles, skips generic stopwords,

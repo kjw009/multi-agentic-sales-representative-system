@@ -115,7 +115,7 @@ def _get_sentence_model():
 _DEFAULT_FLOOR_RATIO = 0.70
 _MODEL_WEIGHT = 0.60  # model 60%, live comparable median 40%
 _TARGET_COMPARABLES = 20
-_MAX_SEARCH_ROUNDS = 3
+_MAX_SEARCH_ROUNDS = 2
 
 # ---------------------------------------------------------------------------
 # Condition → v3 ordinal  (mirrors notebook CONDITION_ORDINAL)
@@ -338,8 +338,8 @@ async def _collect_comparables(
         seen_ids.update(c.item_id for c in raw)
 
         if not new_candidates:
-            logger.info("Round %d returned no new candidates — stopping", round_num)
-            break
+            logger.info("Round %d returned no new candidates — continuing", round_num)
+            continue
 
         # ── LLM relevance gate ─────────────────────────────────────────────
         valid, rejected = await validate_comparables(
