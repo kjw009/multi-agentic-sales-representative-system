@@ -1,4 +1,4 @@
-.PHONY: help up down logs ps install install-ml install-nlp test fmt lint migrate migration shell-api shell-db worker
+.PHONY: help up down logs ps install install-ml install-nlp test fmt lint mypy ci migrate migration shell-api shell-db worker
 
 help:
 	@echo "Stack:"
@@ -14,6 +14,8 @@ help:
 	@echo "  make test         run pytest"
 	@echo "  make fmt          ruff format + fix"
 	@echo "  make lint         ruff check"
+	@echo "  make mypy         mypy type check"
+	@echo "  make ci           fmt + lint + mypy + test (mirrors CI)"
 	@echo ""
 	@echo "Database:"
 	@echo "  make migrate                      apply all migrations"
@@ -56,6 +58,11 @@ fmt:
 
 lint:
 	uv run ruff check .
+
+mypy:
+	uv run mypy apps packages workers
+
+ci: fmt lint mypy test
 
 migrate:
 	uv run alembic upgrade head
