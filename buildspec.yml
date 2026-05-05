@@ -1,8 +1,7 @@
 version: 0.2
 
 # Requires the CodeBuild project to have:
-#   - Environment: aws/codebuild/standard:7.0 (Python 3.12, Node 20, Docker)
-#   - Privileged mode enabled (for docker build)
+#   - Environment: LINUX_EC2 (Docker works natively, no privileged mode needed)
 #   - Environment variables: AWS_REGION, EC2_INSTANCE_ID
 #   - (Optional) S3 cache bucket configured to use the cache section below
 
