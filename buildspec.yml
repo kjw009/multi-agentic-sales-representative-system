@@ -13,7 +13,7 @@ phases:
       nodejs: "20"
     commands:
       - pip install uv --quiet
-      - uv sync --extra dev
+      - uv sync --extra dev --frozen
       - npm --prefix apps/web ci
 
   pre_build:

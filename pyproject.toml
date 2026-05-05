@@ -92,6 +92,13 @@ python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 
+[tool.uv]
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+
 [dependency-groups]
 dev = [
     "matplotlib>=3.10.9",
