@@ -9,11 +9,11 @@ version: 0.2
 phases:
   install:
     runtime-versions:
+      python: "3.12"
       nodejs: "20"
     commands:
       - pip install uv --quiet
-      - uv python install 3.12
-      - uv sync --extra dev --python 3.12 --frozen
+      - uv sync --extra dev --frozen
       - npm --prefix apps/web ci
 
   pre_build:
