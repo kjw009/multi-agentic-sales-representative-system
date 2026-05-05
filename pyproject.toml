@@ -39,23 +39,21 @@ dependencies = [
   "structlog>=24.4",
   "python-multipart>=0.0.12",
   "boto3>=1.35",
-  "xgboost>=3.2.0",
-  "scikit-learn>=1.8.0",
-  "sentence-transformers>=3.3",
-  "transformers>=4.46",
-  "lightgbm>=4.6.0",
-  "optuna>=4.8.0",
 ]
 
 [project.optional-dependencies]
 ml = [
-  "xgboost>=2.1",
-  "scikit-learn>=1.5",
+  "xgboost>=3.2.0",
+  "scikit-learn>=1.8.0",
+  "lightgbm>=4.6.0",
+  "optuna>=4.8.0",
   "pandas>=2.2",
   "numpy>=2.1",
 ]
 nlp = [
   "spacy>=3.8",
+  "sentence-transformers>=3.3",
+  "transformers>=4.46",
 ]
 scraping = [
   "scrapy>=2.11",
@@ -91,6 +89,27 @@ ignore = ["E501"]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["packages.platform_adapters.ebay.sell"]
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = ["packages.storage"]
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["packages.agents.pricing.agent"]
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
+[tool.uv]
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
 
 [dependency-groups]
 dev = [

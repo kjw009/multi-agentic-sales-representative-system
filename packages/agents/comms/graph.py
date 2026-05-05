@@ -9,7 +9,7 @@ Phase 4 replaces the comms_node stub with the full NLP + LLM pipeline.
 """
 
 import uuid
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -29,7 +29,7 @@ class CommsState(TypedDict):
 
 
 @traceable(name="comms_node", run_type="chain")
-async def comms_node(state: CommsState, config: RunnableConfig) -> dict:
+async def comms_node(state: CommsState, config: RunnableConfig) -> dict[str, Any]:
     session = config["configurable"]["session"]
 
     result = await run_agent(
@@ -46,7 +46,7 @@ async def comms_node(state: CommsState, config: RunnableConfig) -> dict:
     }
 
 
-_builder: StateGraph = StateGraph(CommsState)
+_builder: StateGraph[CommsState] = StateGraph(CommsState)
 _builder.add_node("comms", comms_node)
 _builder.set_entry_point("comms")
 _builder.add_edge("comms", END)

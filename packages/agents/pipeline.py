@@ -9,7 +9,7 @@ Phase 3 replaces the publisher_node stub with the eBay Sell API.
 """
 
 import uuid
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -32,7 +32,7 @@ class PipelineState(TypedDict):
 
 
 @traceable(name="pipeline_pricing_node", run_type="chain")
-async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict:
+async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
     session = config["configurable"]["session"]
     item_id = uuid.UUID(state["item_id"])
     seller_id = uuid.UUID(state["seller_id"])
@@ -63,7 +63,7 @@ async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict:
 
 
 @traceable(name="pipeline_publisher_node", run_type="chain")
-async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict:
+async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
     if state.get("error"):
         return {}
 
@@ -74,9 +74,7 @@ async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict:
     from packages.schemas.agents import PricingResult
 
     # Load the item to get the persisted min_acceptable_price
-    item = await session.scalar(
-        select(Item).where(Item.id == item_id, Item.seller_id == seller_id)
-    )
+    item = await session.scalar(select(Item).where(Item.id == item_id, Item.seller_id == seller_id))
     min_price = float(item.min_acceptable_price) if item and item.min_acceptable_price else 0.0
 
     pricing = PricingResult(
@@ -95,7 +93,7 @@ async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict:
         return {"error": f"Publishing failed: {exc}"}
 
 
-_builder: StateGraph = StateGraph(PipelineState)
+_builder: StateGraph[PipelineState] = StateGraph(PipelineState)
 _builder.add_node("pricing", pricing_node)
 _builder.add_node("publisher", publisher_node)
 _builder.set_entry_point("pricing")

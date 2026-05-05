@@ -17,6 +17,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from xml.sax.saxutils import escape as xml_escape
 
 import httpx
@@ -156,7 +157,9 @@ async def get_seller_token(seller_id: uuid.UUID, session: AsyncSession) -> Selle
     # Check if token needs refresh
     if cred.expires_at and cred.expires_at < datetime.now(UTC):
         if not cred.refresh_token_enc:
-            raise ValueError(f"eBay access token expired and no refresh token for seller {seller_id}")
+            raise ValueError(
+                f"eBay access token expired and no refresh token for seller {seller_id}"
+            )
 
         refresh_token = decrypt_token(cred.refresh_token_enc)
         logger.info("Refreshing expired eBay token for seller %s", seller_id)
@@ -222,7 +225,7 @@ async def create_inventory_item(
     condition = _CONDITION_MAP.get(str(item.condition), "GOOD")
 
     # Build product payload
-    product: dict = {
+    product: dict[str, Any] = {
         "title": item.name[:80],  # eBay title limit
         "description": item.description or item.name,
         "imageUrls": image_urls[:12],  # eBay allows up to 12 images
@@ -297,7 +300,9 @@ async def get_suggested_category(title: str, token: SellerToken) -> str | None:
                 logger.info("eBay suggested category: %s (%s)", cat.get("categoryName", ""), cat_id)
                 return cat_id
 
-    logger.warning("eBay REST category suggestion failed (%s) — falling back to Browse API", r.status_code)
+    logger.warning(
+        "eBay REST category suggestion failed (%s) — falling back to Browse API", r.status_code
+    )
     return await _browse_get_category_id(title)
 
 
@@ -348,7 +353,9 @@ async def ensure_business_policies(token: SellerToken) -> PolicyIds:
         )
         if r.status_code != 200:
             logger.error("GET fulfillment_policy %s: %s", r.status_code, r.text)
-        fulfillment_policies = r.json().get("fulfillmentPolicies", []) if r.status_code == 200 else []
+        fulfillment_policies = (
+            r.json().get("fulfillmentPolicies", []) if r.status_code == 200 else []
+        )
 
         # Check existing payment policies
         r = await client.get(
@@ -382,7 +389,7 @@ async def ensure_business_policies(token: SellerToken) -> PolicyIds:
     )
 
 
-def _extract_duplicate_policy_id(response_json: dict, id_param_name: str) -> str | None:
+def _extract_duplicate_policy_id(response_json: dict[str, Any], id_param_name: str) -> str | None:
     """Extract the existing policy ID from an eBay 'already exists' error response."""
     for err in response_json.get("errors", []):
         if err.get("errorId") == 20400:
@@ -392,7 +399,7 @@ def _extract_duplicate_policy_id(response_json: dict, id_param_name: str) -> str
     return None
 
 
-async def _get_or_create_fulfillment_policy(existing: list, token: SellerToken) -> str:
+async def _get_or_create_fulfillment_policy(existing: list[Any], token: SellerToken) -> str:
     if existing:
         return existing[0]["fulfillmentPolicyId"]
 
@@ -435,7 +442,7 @@ async def _get_or_create_fulfillment_policy(existing: list, token: SellerToken) 
         raise RuntimeError("unreachable")
 
 
-async def _get_or_create_payment_policy(existing: list, token: SellerToken) -> str:
+async def _get_or_create_payment_policy(existing: list[Any], token: SellerToken) -> str:
     if existing:
         return existing[0]["paymentPolicyId"]
 
@@ -465,7 +472,7 @@ async def _get_or_create_payment_policy(existing: list, token: SellerToken) -> s
         raise RuntimeError("unreachable")
 
 
-async def _get_or_create_return_policy(existing: list, token: SellerToken) -> str:
+async def _get_or_create_return_policy(existing: list[Any], token: SellerToken) -> str:
     if existing:
         return existing[0]["returnPolicyId"]
 
@@ -642,22 +649,26 @@ def _build_item_specifics(item: Item) -> dict[str, str]:
         specifics["Screen Size"] = f"{m.group(1)} in"
 
     # Apple Silicon: M1/M2/M3/M4 [Pro/Max/Ultra]
-    m = re.search(r'\b(M[1-4](?:\s*(?:Pro|Max|Ultra))?)\b', text, re.IGNORECASE)
+    m = re.search(r"\b(M[1-4](?:\s*(?:Pro|Max|Ultra))?)\b", text, re.IGNORECASE)
     if m:
         specifics["Processor"] = f"Apple {m.group(1).strip()}"
     else:
         # Intel/AMD processor
-        m = re.search(r'\b(Core\s+i[3579][-\s]\d+\w*|Ryzen\s+\d+\s*\d+\w*|Celeron\s+\w+)\b', text, re.IGNORECASE)
+        m = re.search(
+            r"\b(Core\s+i[3579][-\s]\d+\w*|Ryzen\s+\d+\s*\d+\w*|Celeron\s+\w+)\b",
+            text,
+            re.IGNORECASE,
+        )
         if m:
             specifics["Processor"] = m.group(1)
 
     # RAM: "16GB RAM", "16 GB"
-    m = re.search(r'(\d+)\s*GB\s*RAM', text, re.IGNORECASE)
+    m = re.search(r"(\d+)\s*GB\s*RAM", text, re.IGNORECASE)
     if m:
         specifics["RAM Size"] = f"{m.group(1)} GB"
 
     # Storage: "256GB SSD", "512GB SSD", "1TB SSD"
-    m = re.search(r'(\d+)\s*(GB|TB)\s*SSD', text, re.IGNORECASE)
+    m = re.search(r"(\d+)\s*(GB|TB)\s*SSD", text, re.IGNORECASE)
     if m:
         specifics["SSD Capacity"] = f"{m.group(1)} {m.group(2).upper()}"
 
@@ -694,8 +705,7 @@ async def _publish_via_trading_api(
     description = item.description or item.name or "Item for sale"
 
     picture_urls_xml = "".join(
-        f"<PictureURL>{xml_escape(url)}</PictureURL>"
-        for url in (image_urls or [])[:12]
+        f"<PictureURL>{xml_escape(url)}</PictureURL>" for url in (image_urls or [])[:12]
     )
 
     # Build ItemSpecifics XML from item fields and parsed attributes
@@ -704,7 +714,9 @@ async def _publish_via_trading_api(
         f"<NameValueList><Name>{xml_escape(k)}</Name><Value>{xml_escape(v)}</Value></NameValueList>"
         for k, v in item_specifics.items()
     )
-    item_specifics_block = f"<ItemSpecifics>{item_specifics_xml}</ItemSpecifics>" if item_specifics_xml else ""
+    item_specifics_block = (
+        f"<ItemSpecifics>{item_specifics_xml}</ItemSpecifics>" if item_specifics_xml else ""
+    )
 
     xml_body = (
         '<?xml version="1.0" encoding="utf-8"?>'
@@ -770,7 +782,9 @@ async def _publish_via_trading_api(
             or e.findtext("ebay:ShortMessage", namespaces=ns)
             for e in errors
         ]
-        raise RuntimeError(f"Trading API AddFixedPriceItem failed: {'; '.join(str(m) for m in msgs)}")
+        raise RuntimeError(
+            f"Trading API AddFixedPriceItem failed: {'; '.join(str(m) for m in msgs)}"
+        )
 
     ebay_item_id = root.findtext("ebay:ItemID", namespaces=ns)
     if not ebay_item_id:
@@ -781,7 +795,9 @@ async def _publish_via_trading_api(
         if settings.ebay_env == "sandbox"
         else f"https://www.ebay.co.uk/itm/{ebay_item_id}"
     )
-    logger.info("eBay listing published via Trading API: item_id=%s url=%s", ebay_item_id, listing_url)
+    logger.info(
+        "eBay listing published via Trading API: item_id=%s url=%s", ebay_item_id, listing_url
+    )
     return PublishResult(listing_id=ebay_item_id, listing_url=listing_url)
 
 
@@ -821,10 +837,14 @@ async def publish_offer(
     if r.status_code == 400 and item is not None:
         errors = r.json().get("errors", [])
         is_country_error = any(
-            e.get("errorId") == 25002 and "Country" in e.get("message", "")
-            for e in errors
+            e.get("errorId") == 25002 and "Country" in e.get("message", "") for e in errors
         )
-        if is_country_error and price is not None and category_id is not None and policies is not None:
+        if (
+            is_country_error
+            and price is not None
+            and category_id is not None
+            and policies is not None
+        ):
             logger.warning(
                 "publish_offer: Item.Country error — falling back to Trading API. offer_id=%s",
                 offer_id,
@@ -908,7 +928,7 @@ async def end_listing(listing_id: str, reason: str, token: SellerToken) -> None:
 # ---------------------------------------------------------------------------
 
 
-def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict:
+def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict[str, Any]:
     """Build an eBay InventoryItem JSON payload from an internal Item.
 
     Exposed for unit testing — this is the same logic used by create_inventory_item
@@ -916,7 +936,7 @@ def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict:
     """
     condition = _CONDITION_MAP.get(str(item.condition), "GOOD")
 
-    product: dict = {
+    product: dict[str, Any] = {
         "title": item.name[:80],
         "description": item.description or item.name,
         "imageUrls": image_urls[:12],
@@ -938,7 +958,7 @@ def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict:
     if aspects:
         product["aspects"] = aspects
 
-    payload: dict = {
+    payload: dict[str, Any] = {
         "product": product,
         "condition": condition,
         "availability": {

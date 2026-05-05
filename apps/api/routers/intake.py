@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select
@@ -111,7 +112,7 @@ async def get_listing_status(
     item_id: uuid.UUID,
     seller: Seller = Depends(get_current_seller),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict | None:
+) -> dict[str, Any] | None:
     """
     Return the listing status for an item once publishing has started.
 
@@ -134,4 +135,3 @@ async def get_listing_status(
         "external_id": listing.external_id,
         "posted_price": float(listing.posted_price) if listing.posted_price else None,
     }
-

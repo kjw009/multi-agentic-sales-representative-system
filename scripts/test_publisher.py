@@ -3,12 +3,12 @@
 import asyncio
 import uuid
 
-from packages.db.session import SessionLocal
 from packages.agents.publisher import agent as publisher
+from packages.db.session import SessionLocal
 from packages.schemas.agents import PricingResult
 
-ITEM_ID    = uuid.UUID("22c5135e-3133-4573-a978-894407167600")
-SELLER_ID  = uuid.UUID("6cd6be31-f015-486d-8cbe-3fcded6a83fd")
+ITEM_ID = uuid.UUID("22c5135e-3133-4573-a978-894407167600")
+SELLER_ID = uuid.UUID("6cd6be31-f015-486d-8cbe-3fcded6a83fd")
 
 PRICING = PricingResult(
     item_id=ITEM_ID,

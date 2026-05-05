@@ -6,6 +6,7 @@ with validation for file types and sizes.
 """
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
@@ -32,7 +33,7 @@ async def upload_item_image(
     file: UploadFile = File(...),  # noqa: B008
     seller: Seller = Depends(get_current_seller),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict:
+) -> dict[str, Any]:
     """
     Upload an image for a specific item.
 

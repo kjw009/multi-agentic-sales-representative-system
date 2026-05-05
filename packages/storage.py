@@ -8,6 +8,7 @@ and generate public URLs for access.
 import asyncio
 import uuid
 from pathlib import Path
+from typing import Any
 
 import boto3
 from botocore.client import Config
@@ -41,7 +42,7 @@ def _client():
     )
 
 
-def _ensure_bucket(client) -> None:
+def _ensure_bucket(client: Any) -> None:
     """
     Ensure the S3 bucket exists, creating it if necessary.
 

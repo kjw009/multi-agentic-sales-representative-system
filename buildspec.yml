@@ -1,10 +1,40 @@
 version: 0.2
 
+# Requires the CodeBuild project to have:
+#   - Environment: LINUX_EC2 (Docker works natively, no privileged mode needed)
+#   - Environment variables: AWS_REGION, EC2_INSTANCE_ID
+#   - (Optional) S3 cache bucket configured to use the cache section below
+
 phases:
+  install:
+    runtime-versions:
+      python: "3.12"
+      nodejs: "20"
+    commands:
+      - pip install uv --quiet
+      - uv sync --extra dev --no-group dev
+      - npm --prefix apps/web ci
+
+  pre_build:
+    on-failure: ABORT
+    commands:
+      # Lint & format
+      - uv run ruff check .
+      - uv run ruff format --check .
+      # Type check
+      - uv run mypy apps packages workers
+      # Tests (all mock-based, no live DB needed)
+      - JWT_SECRET_KEY=ci-test-secret uv run pytest --cov
+      # Validate Dockerfile builds (requires privileged mode)
+      - docker build .
+      # Frontend type check + build
+      - npm --prefix apps/web run build
+
   build:
+    on-failure: ABORT
     commands:
       - |
-        aws ssm send-command \
+        CMD_ID=$(aws ssm send-command \
           --region $AWS_REGION \
           --instance-ids $EC2_INSTANCE_ID \
           --document-name "AWS-RunShellScript" \
@@ -16,8 +46,7 @@ phases:
             "sudo docker compose up -d"
           ]}' \
           --output text \
-          --query "Command.CommandId" > /tmp/cmd_id.txt
-      - CMD_ID=$(cat /tmp/cmd_id.txt)
+          --query "Command.CommandId")
       - echo "SSM command $CMD_ID dispatched"
       - |
         for i in $(seq 1 30); do
@@ -40,3 +69,8 @@ phases:
         done
         echo "Timed out waiting for deploy"
         exit 1
+
+cache:
+  paths:
+    - "/root/.cache/uv/**/*"
+    - "apps/web/node_modules/**/*"

@@ -159,18 +159,23 @@ async def run(
         await session.commit()
 
         # Step 10: Emit event
-        emit("listing.published", {
-            "seller_id": str(seller_id),
-            "item_id": str(item_id),
-            "listing_id": publish_result.listing_id,
-            "listing_url": publish_result.listing_url,
-            "price": pricing.recommended_price,
-            "platform": "ebay",
-        })
+        emit(
+            "listing.published",
+            {
+                "seller_id": str(seller_id),
+                "item_id": str(item_id),
+                "listing_id": publish_result.listing_id,
+                "listing_url": publish_result.listing_url,
+                "price": pricing.recommended_price,
+                "platform": "ebay",
+            },
+        )
 
         logger.info(
             "[Agent 3 — Publisher] item_id=%s listed on eBay listing_id=%s url=%s",
-            item_id, publish_result.listing_id, publish_result.listing_url,
+            item_id,
+            publish_result.listing_id,
+            publish_result.listing_url,
         )
 
         return ListingResult(

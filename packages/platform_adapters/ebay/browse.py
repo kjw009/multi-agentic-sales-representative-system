@@ -41,9 +41,32 @@ _BROWSE_SCOPE = "https://api.ebay.com/oauth/api_scope"
 
 # Words to strip from search queries — eBay-specific noise that dilutes precision
 _QUERY_NOISE_WORDS = {
-    "for", "sale", "selling", "my", "the", "a", "an", "and", "or", "of", "in",
-    "with", "used", "great", "condition", "grade", "good", "nice", "old",
-    "item", "things", "stuff", "see", "photos", "pics", "pictures",
+    "for",
+    "sale",
+    "selling",
+    "my",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "of",
+    "in",
+    "with",
+    "used",
+    "great",
+    "condition",
+    "grade",
+    "good",
+    "nice",
+    "old",
+    "item",
+    "things",
+    "stuff",
+    "see",
+    "photos",
+    "pics",
+    "pictures",
 }
 
 
@@ -137,10 +160,11 @@ async def get_category_id(title: str) -> str | None:
                 cat_id = cats[0].get("categoryId")
                 cat_name = cats[0].get("categoryName", "")
                 import logging
+
                 logging.getLogger(__name__).info(
                     "Browse API category lookup: %s (%s)", cat_name, cat_id
                 )
-                return cat_id
+                return cat_id  # type: ignore[no-any-return]
     except Exception:
         pass
     return None
@@ -167,10 +191,7 @@ def _build_search_query(
     cleaned = re.sub(r"\(.*?\)", "", name).strip()
 
     # Tokenise and remove noise words
-    tokens = [
-        t for t in cleaned.split()
-        if t.lower() not in _QUERY_NOISE_WORDS
-    ]
+    tokens = [t for t in cleaned.split() if t.lower() not in _QUERY_NOISE_WORDS]
 
     # Prepend brand if it's not already the first token (case-insensitive)
     if brand:

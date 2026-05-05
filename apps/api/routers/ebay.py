@@ -2,9 +2,10 @@ import json
 import logging
 import secrets
 import uuid
+from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +33,7 @@ _STATE_TTL = 600  # seconds — how long the state nonce lives in Redis
 _FRONTEND_CHAT = "http://localhost:3000/chat"
 
 
-def _redis():
+def _redis() -> Any:
     """
     Helper function to create an async Redis client.
 
@@ -44,7 +45,7 @@ def _redis():
 
 
 @router.get("/connect")
-async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict:  # noqa: B008
+async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict[str, Any]:  # noqa: B008
     """
     Returns the eBay authorization URL. The frontend should redirect the user there.
     Stores PKCE verifier + seller_id in Redis keyed by the state nonce.
@@ -147,7 +148,7 @@ async def ebay_callback(
 async def ebay_status(
     seller: Seller = Depends(get_current_seller),  # noqa: B008
     session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict:
+) -> dict[str, Any]:
     """
     Check whether the current seller has a connected eBay account.
     Returns connection status and token expiry if connected.

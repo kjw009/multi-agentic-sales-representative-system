@@ -6,6 +6,7 @@ from packages.agents.pricing import agent
 
 
 def test_get_sentence_model_missing_dependency_raises():
+    agent._MODEL = object()  # non-None so the guard doesn't short-circuit
     agent._META = {"sentence_model_name": "all-MiniLM-L6-v2"}
     agent._ST_MODEL = None
     agent._ST_LOAD_ATTEMPTED = False

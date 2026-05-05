@@ -28,22 +28,46 @@ logger = logging.getLogger(__name__)
 # itself but rather an accessory, part, or packaging for it.
 _REJECT_TOKENS: set[str] = {
     # Accessories / cases
-    "case", "cover", "shell", "sleeve", "bag", "pouch",
+    "case",
+    "cover",
+    "shell",
+    "sleeve",
+    "bag",
+    "pouch",
     # Screen protection
-    "screen protector", "tempered glass", "privacy screen",
+    "screen protector",
+    "tempered glass",
+    "privacy screen",
     # Cables / chargers for (but not the device itself)
-    "charger for", "cable for", "adapter for",
+    "charger for",
+    "cable for",
+    "adapter for",
     # Box / packaging only
-    "box only", "packaging only", "empty box", "box no",
+    "box only",
+    "packaging only",
+    "empty box",
+    "box no",
     # Parts / spares
-    "replacement", "spare part", "parts only", "for parts",
-    "broken", "spares", "repair",
+    "replacement",
+    "spare part",
+    "parts only",
+    "for parts",
+    "broken",
+    "spares",
+    "repair",
     # Stands / docks / mounts
-    "stand", "dock", "mount", "holder",
+    "stand",
+    "dock",
+    "mount",
+    "holder",
     # Stickers / skins
-    "skin", "sticker", "decal", "vinyl",
+    "skin",
+    "sticker",
+    "decal",
+    "vinyl",
     # Manuals
-    "manual", "booklet",
+    "manual",
+    "booklet",
 }
 
 
@@ -119,7 +143,9 @@ async def validate_comparables(
     heuristic_kept, heuristic_rejected = _heuristic_filter(item_title, comparables)
     logger.debug(
         "Heuristic pre-filter: %d kept, %d rejected out of %d",
-        len(heuristic_kept), len(heuristic_rejected), len(comparables),
+        len(heuristic_kept),
+        len(heuristic_rejected),
+        len(comparables),
     )
 
     # If the heuristic already filtered everything, no need for LLM
@@ -127,11 +153,7 @@ async def validate_comparables(
         return [], comparables
 
     # Build the user prompt for the LLM
-    item_ctx = (
-        f"Seller's item:\n"
-        f"  Title: {item_title}\n"
-        f"  Category: {item_category}\n"
-    )
+    item_ctx = f"Seller's item:\n  Title: {item_title}\n  Category: {item_category}\n"
     if item_brand:
         item_ctx += f"  Brand: {item_brand}\n"
     if item_description:
@@ -140,8 +162,7 @@ async def validate_comparables(
         item_ctx += f"  Description: {short_desc}\n"
 
     comp_lines = "\n".join(
-        f"{i + 1}. \"{comp.title}\" — £{comp.price:.2f}"
-        for i, comp in enumerate(heuristic_kept)
+        f'{i + 1}. "{comp.title}" — £{comp.price:.2f}' for i, comp in enumerate(heuristic_kept)
     )
     user_content = f"{item_ctx}\nComparables to evaluate:\n{comp_lines}"
 
@@ -190,7 +211,10 @@ async def validate_comparables(
         total_rejected = heuristic_rejected + llm_rejected
         logger.info(
             "Comparable validation: %d kept, %d rejected (%d heuristic, %d LLM)",
-            len(kept), len(total_rejected), len(heuristic_rejected), len(llm_rejected),
+            len(kept),
+            len(total_rejected),
+            len(heuristic_rejected),
+            len(llm_rejected),
         )
         return kept, total_rejected
 
@@ -206,6 +230,7 @@ async def validate_comparables(
 # Keyword extraction from validated comparables
 # ---------------------------------------------------------------------------
 
+
 def extract_keywords_from_comparables(comparables: list[Comparable], top_n: int = 5) -> str:
     """Extract the most common high-signal words from validated comparable titles.
 
@@ -217,19 +242,43 @@ def extract_keywords_from_comparables(comparables: list[Comparable], top_n: int 
     we know those are good discriminative terms to search with next.
     """
     stopwords = {
-        "for", "and", "the", "with", "in", "a", "an", "of", "to", "used",
-        "sale", "selling", "great", "condition", "grade", "good", "boxed",
-        "new", "old", "like", "very", "excellent", "working", "tested",
-        "uk", "seller", "collection", "delivery", "only",
+        "for",
+        "and",
+        "the",
+        "with",
+        "in",
+        "a",
+        "an",
+        "of",
+        "to",
+        "used",
+        "sale",
+        "selling",
+        "great",
+        "condition",
+        "grade",
+        "good",
+        "boxed",
+        "new",
+        "old",
+        "like",
+        "very",
+        "excellent",
+        "working",
+        "tested",
+        "uk",
+        "seller",
+        "collection",
+        "delivery",
+        "only",
     }
 
-    word_counts: Counter = Counter()
+    word_counts: Counter[str] = Counter()
     for comp in comparables:
         words = [
             w.strip("\"'.,!?()[]{}").lower()
             for w in comp.title.split()
-            if w.strip("\"'.,!?()[]{}").lower() not in stopwords
-            and len(w) > 1
+            if w.strip("\"'.,!?()[]{}").lower() not in stopwords and len(w) > 1
         ]
         word_counts.update(words)
 

@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -152,7 +153,7 @@ class Item(Base):
 
     # Flexible attributes (e.g. size, color, material)
     # NOTE: default=dict is safe here because SQLAlchemy handles callable defaults
-    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
     # Minimum acceptable price from seller
     seller_floor_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
@@ -163,7 +164,7 @@ class Item(Base):
     confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4))
     price_low: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI lower bound
     price_high: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI upper bound
-    pricing_comparables: Mapped[list | None] = mapped_column(JSONB)  # raw comparable listings
+    pricing_comparables: Mapped[list[Any] | None] = mapped_column(JSONB)  # raw comparable listings
 
     # Workflow state machine
     status: Mapped[ItemStatus] = mapped_column(
@@ -335,9 +336,7 @@ class Listing(Base):
     __tablename__ = "listings"
 
     # Enforces one listing per item per platform
-    __table_args__ = (
-        UniqueConstraint("item_id", "platform", name="uq_listings_item_platform"),
-    )
+    __table_args__ = (UniqueConstraint("item_id", "platform", name="uq_listings_item_platform"),)
 
     # Primary key
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -428,7 +427,7 @@ class Conversation(Base):
     )
 
     buyer_handle: Mapped[str] = mapped_column(String(255), nullable=False)
-    
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -463,16 +462,16 @@ class BuyerMessage(Base):
 
     # ID from eBay
     message_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
-    
+
     direction: Mapped[MessageDirection] = mapped_column(
         Enum(MessageDirection, name="message_direction"),
         nullable=False,
     )
-    
+
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
-    
+
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
