@@ -136,9 +136,7 @@ def _missing_fields(item: Item) -> list[str]:
     return missing
 
 
-async def _plan_next_step(
-    session, item_id: uuid.UUID | None
-) -> tuple[str | None, bool, bool]:
+async def _plan_next_step(session, item_id: uuid.UUID | None) -> tuple[str | None, bool, bool]:
     if item_id is None:
         return None, False, False
 
@@ -173,9 +171,7 @@ async def _plan_next_step(
         return None, False, False
 
     image_count = await session.scalar(
-        select(func.count())
-        .select_from(ItemImage)
-        .where(ItemImage.item_id == item_id)
+        select(func.count()).select_from(ItemImage).where(ItemImage.item_id == item_id)
     )
     has_image = bool(image_count)
 
@@ -322,17 +318,15 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
                 # Non-terminal: let the LLM present the result to the seller
                 pass
             elif tc.function.name == "mark_intake_complete":
-                terminal_reply = (
-                    "Great — I have everything I need to prepare your listing!"
-                )
+                terminal_reply = "Great — I have everything I need to prepare your listing!"
                 complete = True
 
         if terminal_reply is not None:
             reply = terminal_reply
             break
 
-        planned_reply, planned_needs_image, planned_complete = (
-            await _plan_next_step(session, item_id)
+        planned_reply, planned_needs_image, planned_complete = await _plan_next_step(
+            session, item_id
         )
         if planned_reply is not None:
             reply = planned_reply

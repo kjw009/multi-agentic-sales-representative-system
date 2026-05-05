@@ -1,9 +1,10 @@
 import asyncio
+
 import httpx
-import sys
 
 from packages.config import settings
-from packages.platform_adapters.ebay.oauth import _token_url, _basic_auth
+from packages.platform_adapters.ebay.oauth import _basic_auth, _token_url
+
 
 async def get_app_token():
     async with httpx.AsyncClient() as client:
@@ -21,28 +22,29 @@ async def get_app_token():
         r.raise_for_status()
         return r.json()["access_token"]
 
+
 async def main():
     print(f"Obtaining application token for env: {settings.ebay_env}...")
     token = await get_app_token()
-    
-    base_url = "https://api.sandbox.ebay.com" if settings.ebay_env == "sandbox" else "https://api.ebay.com"
+
+    base_url = (
+        "https://api.sandbox.ebay.com" if settings.ebay_env == "sandbox" else "https://api.ebay.com"
+    )
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    
+
     print("Updating notification config...")
     async with httpx.AsyncClient() as client:
         r = await client.put(
             f"{base_url}/commerce/notification/v1/config",
             headers=headers,
-            json={
-                "alertEmail": "dev@salesrep.com"
-            }
+            json={"alertEmail": "dev@salesrep.com"},
         )
         if r.status_code not in (200, 201, 204):
             print(f"Failed to update config: {r.status_code} {r.text}")
-    
+
     print("Creating destination...")
     async with httpx.AsyncClient() as client:
         r = await client.post(
@@ -53,14 +55,16 @@ async def main():
                 "status": "ENABLED",
                 "deliveryConfig": {
                     "endpoint": settings.ebay_webhook_endpoint,
-                    "verificationToken": settings.ebay_verification_token
-                }
-            }
+                    "verificationToken": settings.ebay_verification_token,
+                },
+            },
         )
         if r.status_code in (201, 204, 200):
             print(f"Destination created or updated successfully! Status: {r.status_code}")
             # Fetch the ID
-            r2 = await client.get(f"{base_url}/commerce/notification/v1/destination", headers=headers)
+            r2 = await client.get(
+                f"{base_url}/commerce/notification/v1/destination", headers=headers
+            )
             dest_id = None
             for d in r2.json().get("destinations", []):
                 if d.get("deliveryConfig", {}).get("endpoint") == settings.ebay_webhook_endpoint:
@@ -73,7 +77,9 @@ async def main():
         elif r.status_code == 409:
             print(f"409 error: {r.text}")
             print("Destination URL already exists. Fetching existing destinations...")
-            r2 = await client.get(f"{base_url}/commerce/notification/v1/destination", headers=headers)
+            r2 = await client.get(
+                f"{base_url}/commerce/notification/v1/destination", headers=headers
+            )
             dest_id = None
             for d in r2.json().get("destinations", []):
                 if d.get("deliveryConfig", {}).get("endpoint") == settings.ebay_webhook_endpoint:
@@ -96,12 +102,8 @@ async def main():
                 "destinationId": dest_id,
                 "status": "ENABLED",
                 "topicId": "MARKETPLACE.MESSAGING.MESSAGE.RECEIVED",
-                "payload": {
-                    "format": "JSON",
-                    "schemaVersion": "1.0",
-                    "deliveryProtocol": "HTTPS"
-                }
-            }
+                "payload": {"format": "JSON", "schemaVersion": "1.0", "deliveryProtocol": "HTTPS"},
+            },
         )
         if r.status_code in (201, 204, 200):
             print(f"Subscription created! ID: {r.json().get('subscriptionId', 'success')}")
@@ -109,6 +111,7 @@ async def main():
             print("Already subscribed!")
         else:
             print(f"Failed to subscribe: {r.status_code} {r.text}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

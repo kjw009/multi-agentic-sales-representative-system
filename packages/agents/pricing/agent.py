@@ -56,11 +56,11 @@ logger = logging.getLogger(__name__)
 # Artifact loading
 # ---------------------------------------------------------------------------
 
-_ML_DIR        = Path(__file__).parent.parent.parent / "ml"
-_MODEL_PATH    = _ML_DIR / "pricing_model_v3.pkl"
-_META_PATH     = _ML_DIR / "pricing_model_v3_meta.json"
+_ML_DIR = Path(__file__).parent.parent.parent / "ml"
+_MODEL_PATH = _ML_DIR / "pricing_model_v3.pkl"
+_META_PATH = _ML_DIR / "pricing_model_v3_meta.json"
 _PCA_TITLE_PATH = _ML_DIR / "pca_title_v3.pkl"
-_PCA_DESC_PATH  = _ML_DIR / "pca_desc_v3.pkl"
+_PCA_DESC_PATH = _ML_DIR / "pca_desc_v3.pkl"
 
 _MODEL: object | None = None
 _META: dict | None = None
@@ -70,7 +70,9 @@ _PCA_DESC: object | None = None
 try:
     with open(_MODEL_PATH, "rb") as _f:
         _MODEL = pickle.load(_f)
-    _MODEL.set_params(n_jobs=1)  # prevent OpenMP thread-count conflict with torch/sentence-transformers
+    _MODEL.set_params(
+        n_jobs=1
+    )  # prevent OpenMP thread-count conflict with torch/sentence-transformers
     with open(_META_PATH) as _f:
         _META = json.load(_f)
     with open(_PCA_TITLE_PATH, "rb") as _f:
@@ -100,9 +102,7 @@ def _get_sentence_model():
     _ST_LOAD_ATTEMPTED = True
 
     if find_spec("sentence_transformers") is None:
-        raise RuntimeError(
-            "sentence-transformers is required for pricing v3 but is not installed."
-        )
+        raise RuntimeError("sentence-transformers is required for pricing v3 but is not installed.")
 
     try:
         os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -130,11 +130,11 @@ _MAX_SEARCH_ROUNDS = 2
 # ---------------------------------------------------------------------------
 
 _CONDITION_MAP: dict[ItemCondition, int] = {
-    ItemCondition.new:      4,
+    ItemCondition.new: 4,
     ItemCondition.like_new: 3,  # closest to open_box
-    ItemCondition.good:     2,  # closest to refurbished
-    ItemCondition.fair:     1,  # used
-    ItemCondition.poor:     0,  # for_parts
+    ItemCondition.good: 2,  # closest to refurbished
+    ItemCondition.fair: 1,  # used
+    ItemCondition.poor: 0,  # for_parts
 }
 
 
@@ -165,9 +165,9 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
         # ── Comparable stats from live eBay search ─────────────────────────
         prices = [p for p in comparable_prices if p > 0]
         comp_median = float(np.median(prices)) if prices else 0.0
-        comp_mean   = float(np.mean(prices))   if prices else 0.0
-        comp_std    = float(np.std(prices))     if prices else 0.0
-        comp_count  = float(len(prices))
+        comp_mean = float(np.mean(prices)) if prices else 0.0
+        comp_std = float(np.std(prices)) if prices else 0.0
+        comp_count = float(len(prices))
 
         # ── Title embeddings → PCA ─────────────────────────────────────────
         title_emb = st.encode(
@@ -180,7 +180,7 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
 
         # ── Description embeddings → PCA (first 150 words) ─────────────────
         desc_text = " ".join(description.split()[:150])
-        desc_emb  = st.encode(
+        desc_emb = st.encode(
             [desc_text],
             convert_to_tensor=False,
             normalize_embeddings=True,
@@ -189,33 +189,33 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
         desc_pca = _PCA_DESC.transform(desc_emb)[0]
 
         # ── Temporal features from current UTC time ────────────────────────
-        now   = datetime.now(UTC)
-        dow   = now.weekday()
+        now = datetime.now(UTC)
+        dow = now.weekday()
         month = now.month
 
         # ── Target encodings ───────────────────────────────────────────────
         brand = (item.attributes or {}).get("brand", "").lower() if item.attributes else ""
-        brand_enc    = enc.get("brand", {}).get(brand, enc.get("brand_global_mean", 0.0))
+        brand_enc = enc.get("brand", {}).get(brand, enc.get("brand_global_mean", 0.0))
         category_enc = enc.get("category", {}).get(category, enc.get("category_global_mean", 0.0))
 
         # ── Assemble feature dict ──────────────────────────────────────────
         feat: dict[str, float] = {
-            "description_length":      float(len(description.split())),
-            "image_count":             float(len(item.images)),
-            "title_length":            float(len(title.split())),
-            "condition_ord":           float(_condition_ord(item)),
+            "description_length": float(len(description.split())),
+            "image_count": float(len(item.images)),
+            "title_length": float(len(title.split())),
+            "condition_ord": float(_condition_ord(item)),
             "comparable_median_price": comp_median,
-            "comparable_mean_price":   comp_mean,
-            "comparable_stdev_price":  comp_std,
-            "comparable_count":        comp_count,
-            "brand_enc":               float(brand_enc),
-            "category_enc":            float(category_enc),
-            "dow_sin":                 float(np.sin(2 * np.pi * dow / 7)),
-            "dow_cos":                 float(np.cos(2 * np.pi * dow / 7)),
-            "month_sin":               float(np.sin(2 * np.pi * (month - 1) / 12)),
-            "month_cos":               float(np.cos(2 * np.pi * (month - 1) / 12)),
-            **{f"title_pc{i+1}": float(v) for i, v in enumerate(title_pca)},
-            **{f"desc_pc{i+1}":  float(v) for i, v in enumerate(desc_pca)},
+            "comparable_mean_price": comp_mean,
+            "comparable_stdev_price": comp_std,
+            "comparable_count": comp_count,
+            "brand_enc": float(brand_enc),
+            "category_enc": float(category_enc),
+            "dow_sin": float(np.sin(2 * np.pi * dow / 7)),
+            "dow_cos": float(np.cos(2 * np.pi * dow / 7)),
+            "month_sin": float(np.sin(2 * np.pi * (month - 1) / 12)),
+            "month_cos": float(np.cos(2 * np.pi * (month - 1) / 12)),
+            **{f"title_pc{i + 1}": float(v) for i, v in enumerate(title_pca)},
+            **{f"desc_pc{i + 1}": float(v) for i, v in enumerate(desc_pca)},
         }
 
         x = np.array([[feat[col] for col in feature_cols]], dtype=float)
@@ -251,8 +251,20 @@ def _build_fallback_query(item: Item, round_num: int) -> str:
     if round_num <= 2:
         # Extract up to 6 keywords from title + description combined
         stopwords = {
-            "for", "and", "the", "with", "in", "a", "an", "of", "to",
-            "used", "sale", "selling", "great", "condition",
+            "for",
+            "and",
+            "the",
+            "with",
+            "in",
+            "a",
+            "an",
+            "of",
+            "to",
+            "used",
+            "sale",
+            "selling",
+            "great",
+            "condition",
         }
         text = f"{item.name or ''} {item.description or ''}"
         tokens = [
@@ -315,7 +327,9 @@ async def _collect_comparables(
         elif round_num == 1 and kept:
             # Good path: derive keywords from the validated comparables' titles
             query_override = extract_keywords_from_comparables(kept)
-            logger.info("Round 1 adaptive query (from %d valid comps): %r", len(kept), query_override)
+            logger.info(
+                "Round 1 adaptive query (from %d valid comps): %r", len(kept), query_override
+            )
         else:
             # Fallback: no good comparables yet — broaden
             query_override = _build_fallback_query(item, round_num)
@@ -363,14 +377,20 @@ async def _collect_comparables(
 
         logger.info(
             "Round %d: fetched=%d new=%d valid=%d rejected=%d  total_kept=%d/%d",
-            round_num, len(raw), len(new_candidates), len(valid), len(rejected),
-            len(kept), target,
+            round_num,
+            len(raw),
+            len(new_candidates),
+            len(valid),
+            len(rejected),
+            len(kept),
+            target,
         )
 
     if total_rejected:
         logger.info(
             "Comparable collection complete: %d kept, %d rejected total",
-            len(kept), total_rejected,
+            len(kept),
+            total_rejected,
         )
 
     return kept[:target]
@@ -422,16 +442,16 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         recommended = 0.0
 
     if len(prices) >= 2:
-        price_low  = float(np.percentile(prices, 25))
+        price_low = float(np.percentile(prices, 25))
         price_high = float(np.percentile(prices, 75))
     elif len(prices) == 1:
-        price_low  = prices[0] * 0.85
+        price_low = prices[0] * 0.85
         price_high = prices[0] * 1.15
     elif recommended > 0:
-        price_low  = recommended * 0.80
+        price_low = recommended * 0.80
         price_high = recommended * 1.20
     else:
-        price_low  = 0.0
+        price_low = 0.0
         price_high = 0.0
 
     if prices:

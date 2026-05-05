@@ -360,11 +360,7 @@ async def _generate_listing_text(
         base_url=settings.openai_base_url or None,
     )
 
-    user_content = (
-        f"Category: {category}\n"
-        f"Seller's description: {raw_title}\n"
-        f"Details:\n{details}"
-    )
+    user_content = f"Category: {category}\nSeller's description: {raw_title}\nDetails:\n{details}"
 
     response = await client.chat.completions.create(
         model=settings.model_agent1,

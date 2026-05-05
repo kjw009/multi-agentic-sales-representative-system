@@ -34,7 +34,6 @@ def _basic_auth() -> str:
     return base64.b64encode(creds.encode()).decode()
 
 
-
 def build_authorization_url(state: str) -> str:
     params = {
         "client_id": settings.ebay_client_id,

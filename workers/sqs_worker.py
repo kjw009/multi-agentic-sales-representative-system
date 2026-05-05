@@ -110,4 +110,3 @@ def run() -> None:
 if __name__ == "__main__":
     logging.basicConfig(level=settings.log_level)
     run()
-

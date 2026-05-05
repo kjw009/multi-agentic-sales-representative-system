@@ -33,9 +33,7 @@ class _FakeCompletions:
 class _FakeClient:
     def __init__(self, response=None, responses=None, error: Exception | None = None):
         self.chat = SimpleNamespace(
-            completions=_FakeCompletions(
-                response=response, responses=responses, error=error
-            )
+            completions=_FakeCompletions(response=response, responses=responses, error=error)
         )
 
 
@@ -69,11 +67,7 @@ async def test_intake_node_handles_invalid_tool_json(monkeypatch):
         function=SimpleNamespace(name="ask_user_question", arguments="{not-json"),
     )
     response = SimpleNamespace(
-        choices=[
-            SimpleNamespace(
-                message=SimpleNamespace(content=None, tool_calls=[tool_call])
-            )
-        ]
+        choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tool_call]))]
     )
 
     monkeypatch.setattr(
@@ -152,19 +146,13 @@ async def test_intake_node_uses_local_planner_after_tool_execution(monkeypatch):
     )
     completions = _FakeCompletions(
         response=SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    message=SimpleNamespace(content=None, tool_calls=[tool_call])
-                )
-            ]
+            choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tool_call]))]
         )
     )
 
     monkeypatch.setattr(
         "packages.agents.intake.graph.openai.AsyncOpenAI",
-        lambda **kwargs: SimpleNamespace(
-            chat=SimpleNamespace(completions=completions)
-        ),
+        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=completions)),
     )
 
     async def fake_execute_tool(**kwargs):
@@ -173,12 +161,8 @@ async def test_intake_node_uses_local_planner_after_tool_execution(monkeypatch):
     async def fake_plan_next_step(session, item_id):
         return "Please upload clear photos of the item.", True, False
 
-    monkeypatch.setattr(
-        "packages.agents.intake.graph.execute_tool", fake_execute_tool
-    )
-    monkeypatch.setattr(
-        "packages.agents.intake.graph._plan_next_step", fake_plan_next_step
-    )
+    monkeypatch.setattr("packages.agents.intake.graph.execute_tool", fake_execute_tool)
+    monkeypatch.setattr("packages.agents.intake.graph._plan_next_step", fake_plan_next_step)
 
     state = await intake_node(
         {
@@ -288,13 +272,9 @@ async def test_generate_listing_text_parses_json(monkeypatch):
 
     class FakeClient:
         def __init__(self, **kwargs):
-            self.chat = SimpleNamespace(
-                completions=_FakeCompletions(response=fake_response)
-            )
+            self.chat = SimpleNamespace(completions=_FakeCompletions(response=fake_response))
 
-    monkeypatch.setattr(
-        "packages.agents.intake.tools.openai.AsyncOpenAI", FakeClient
-    )
+    monkeypatch.setattr("packages.agents.intake.tools.openai.AsyncOpenAI", FakeClient)
 
     title, description = await _generate_listing_text(
         raw_title="nike air max trainers",
@@ -317,13 +297,9 @@ async def test_generate_listing_text_handles_markdown_fencing(monkeypatch):
 
     class FakeClient:
         def __init__(self, **kwargs):
-            self.chat = SimpleNamespace(
-                completions=_FakeCompletions(response=fake_response)
-            )
+            self.chat = SimpleNamespace(completions=_FakeCompletions(response=fake_response))
 
-    monkeypatch.setattr(
-        "packages.agents.intake.tools.openai.AsyncOpenAI", FakeClient
-    )
+    monkeypatch.setattr("packages.agents.intake.tools.openai.AsyncOpenAI", FakeClient)
 
     title, description = await _generate_listing_text(
         raw_title="test item",
@@ -498,13 +474,7 @@ async def test_intake_node_does_not_terminate_on_generate_listing(monkeypatch):
         ),
     )
     response_with_tool = SimpleNamespace(
-        choices=[
-            SimpleNamespace(
-                message=SimpleNamespace(
-                    content=None, tool_calls=[gen_tool_call]
-                )
-            )
-        ]
+        choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[gen_tool_call]))]
     )
 
     response_text = SimpleNamespace(
@@ -520,15 +490,11 @@ async def test_intake_node_does_not_terminate_on_generate_listing(monkeypatch):
         ]
     )
 
-    completions = _FakeCompletions(
-        responses=[response_with_tool, response_text]
-    )
+    completions = _FakeCompletions(responses=[response_with_tool, response_text])
 
     monkeypatch.setattr(
         "packages.agents.intake.graph.openai.AsyncOpenAI",
-        lambda **kwargs: SimpleNamespace(
-            chat=SimpleNamespace(completions=completions)
-        ),
+        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=completions)),
     )
 
     fixed_item_id = uuid.uuid4()
@@ -543,12 +509,8 @@ async def test_intake_node_does_not_terminate_on_generate_listing(monkeypatch):
     async def fake_plan_next_step(session, item_id):
         return None, False, False
 
-    monkeypatch.setattr(
-        "packages.agents.intake.graph.execute_tool", fake_execute_tool
-    )
-    monkeypatch.setattr(
-        "packages.agents.intake.graph._plan_next_step", fake_plan_next_step
-    )
+    monkeypatch.setattr("packages.agents.intake.graph.execute_tool", fake_execute_tool)
+    monkeypatch.setattr("packages.agents.intake.graph._plan_next_step", fake_plan_next_step)
 
     state = await intake_node(
         {

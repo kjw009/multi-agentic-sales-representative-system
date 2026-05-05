@@ -74,9 +74,7 @@ async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict:
     from packages.schemas.agents import PricingResult
 
     # Load the item to get the persisted min_acceptable_price
-    item = await session.scalar(
-        select(Item).where(Item.id == item_id, Item.seller_id == seller_id)
-    )
+    item = await session.scalar(select(Item).where(Item.id == item_id, Item.seller_id == seller_id))
     min_price = float(item.min_acceptable_price) if item and item.min_acceptable_price else 0.0
 
     pricing = PricingResult(

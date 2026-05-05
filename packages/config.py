@@ -48,7 +48,9 @@ class Settings(BaseSettings):
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
     ebay_env: str = "production"
-    ebay_ru_name: str = ""  # RuName from eBay Developer Portal (used as redirect_uri in OAuth requests)
+    ebay_ru_name: str = (
+        ""  # RuName from eBay Developer Portal (used as redirect_uri in OAuth requests)
+    )
     ebay_redirect_uri: str = ""  # actual callback URL (registered under the RuName)
     ebay_marketplace_id: str = "EBAY_GB"
     ebay_verification_token: str = ""  # for Event Notification API endpoint validation
