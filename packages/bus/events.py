@@ -8,6 +8,7 @@ so local development works without AWS infrastructure.
 import json
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 _SOURCE = "salesrep"
 
 
-def emit(event_type: str, detail: dict) -> None:
+def emit(event_type: str, detail: dict[str, Any]) -> None:
     """Emit an event to EventBridge, or log locally if not configured.
 
     Args:

@@ -6,6 +6,7 @@ about items they want to sell, using a LangGraph-based state machine.
 """
 
 import uuid
+from typing import Any
 
 from langsmith import traceable
 from sqlalchemy import select
@@ -23,7 +24,7 @@ async def load_history(
     seller_id: uuid.UUID,
     item_id: uuid.UUID | None,
     session: AsyncSession,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Return the last N messages for this item in Anthropic message format."""
     if item_id is None:
         return []
@@ -54,7 +55,7 @@ async def run(
     seller_id: uuid.UUID,
     item_id: uuid.UUID | None,
     session: AsyncSession,
-    history: list[dict] | None = None,
+    history: list[dict[str, Any]] | None = None,
 ) -> tuple[str, uuid.UUID | None, bool, bool]:
     """
     Run the intake agent to process a seller message.

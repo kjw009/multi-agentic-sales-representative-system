@@ -14,13 +14,14 @@ v2 changes:
 import json
 import logging
 import uuid
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.agents.intake.tools import (
     CATEGORY_ENRICHMENT_HINTS,
@@ -117,7 +118,7 @@ class IntakeState(TypedDict):
 
     seller_id: str
     item_id: str | None
-    messages: list[dict]
+    messages: list[dict[str, Any]]
     reply: str
     complete: bool
     needs_image: bool
@@ -136,7 +137,9 @@ def _missing_fields(item: Item) -> list[str]:
     return missing
 
 
-async def _plan_next_step(session, item_id: uuid.UUID | None) -> tuple[str | None, bool, bool]:
+async def _plan_next_step(
+    session: AsyncSession, item_id: uuid.UUID | None
+) -> tuple[str | None, bool, bool]:
     if item_id is None:
         return None, False, False
 
@@ -189,7 +192,7 @@ async def _plan_next_step(session, item_id: uuid.UUID | None) -> tuple[str | Non
 
 
 @traceable(name="intake_node", run_type="chain")
-async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
+async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, Any]:
     """
     Main node function for the intake graph.
 
@@ -207,7 +210,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
         if item and item.category:
             system_content += _enrichment_context(item.category)
 
-    messages: list[dict] = [
+    messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_content},
         *state["messages"],
     ]
@@ -222,7 +225,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
 
     for _ in range(10):
         try:
-            response = await client.chat.completions.create(
+            response = await client.chat.completions.create(  # type: ignore[call-overload]
                 model=settings.model_agent1,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
@@ -348,7 +351,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict:
     }
 
 
-_builder: StateGraph = StateGraph(IntakeState)
+_builder: StateGraph[IntakeState] = StateGraph(IntakeState)
 _builder.add_node("intake", intake_node)
 _builder.set_entry_point("intake")
 _builder.add_edge("intake", END)

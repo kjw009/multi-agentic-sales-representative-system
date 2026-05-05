@@ -1,5 +1,6 @@
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +27,7 @@ def _auth_headers(token: SellerToken) -> dict[str, str]:
 
 async def get_conversation(
     conversation_id: str, seller_id: uuid.UUID, session: AsyncSession
-) -> dict:
+) -> dict[str, Any]:
     """
     Fetch a conversation thread from eBay API.
     """
@@ -40,7 +41,7 @@ async def get_conversation(
 
 async def send_message(
     conversation_id: str, text: str, seller_id: uuid.UUID, session: AsyncSession
-) -> dict:
+) -> dict[str, Any]:
     """
     Send an outbound reply to an eBay buyer.
     """

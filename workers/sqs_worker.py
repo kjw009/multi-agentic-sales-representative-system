@@ -15,6 +15,7 @@ import sys
 import time
 import uuid
 from collections.abc import Callable
+from typing import Any
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -23,13 +24,13 @@ from packages.config import settings
 
 logger = logging.getLogger(__name__)
 
-HANDLERS: dict[str, Callable] = {}
+HANDLERS: dict[str, Callable[..., Any]] = {}
 
 
-def register(task_name: str) -> Callable:
+def register(task_name: str) -> Callable[..., Any]:
     """Decorator to register a function as a named task handler."""
 
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         HANDLERS[task_name] = fn
         return fn
 
@@ -54,7 +55,7 @@ def handle_run_pipeline(seller_id: str, item_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _process(msg: dict) -> None:
+def _process(msg: dict[str, Any]) -> None:
     body = json.loads(msg["Body"])
     task_name = body.get("task")
     kwargs = body.get("kwargs", {})

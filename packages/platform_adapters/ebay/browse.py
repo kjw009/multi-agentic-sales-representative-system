@@ -164,7 +164,7 @@ async def get_category_id(title: str) -> str | None:
                 logging.getLogger(__name__).info(
                     "Browse API category lookup: %s (%s)", cat_name, cat_id
                 )
-                return cat_id
+                return cat_id  # type: ignore[no-any-return]
     except Exception:
         pass
     return None

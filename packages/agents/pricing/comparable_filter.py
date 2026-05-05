@@ -273,7 +273,7 @@ def extract_keywords_from_comparables(comparables: list[Comparable], top_n: int 
         "only",
     }
 
-    word_counts: Counter = Counter()
+    word_counts: Counter[str] = Counter()
     for comp in comparables:
         words = [
             w.strip("\"'.,!?()[]{}").lower()

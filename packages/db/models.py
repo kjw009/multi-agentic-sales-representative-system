@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -152,7 +153,7 @@ class Item(Base):
 
     # Flexible attributes (e.g. size, color, material)
     # NOTE: default=dict is safe here because SQLAlchemy handles callable defaults
-    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
     # Minimum acceptable price from seller
     seller_floor_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
@@ -163,7 +164,7 @@ class Item(Base):
     confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4))
     price_low: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI lower bound
     price_high: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI upper bound
-    pricing_comparables: Mapped[list | None] = mapped_column(JSONB)  # raw comparable listings
+    pricing_comparables: Mapped[list[Any] | None] = mapped_column(JSONB)  # raw comparable listings
 
     # Workflow state machine
     status: Mapped[ItemStatus] = mapped_column(

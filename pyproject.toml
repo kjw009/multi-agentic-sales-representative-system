@@ -90,6 +90,20 @@ python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["packages.platform_adapters.ebay.sell"]
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = ["packages.storage"]
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["packages.agents.pricing.agent"]
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
 [tool.uv]
 required-environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",

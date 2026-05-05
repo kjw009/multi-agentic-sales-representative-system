@@ -35,6 +35,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from importlib.util import find_spec
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from langsmith import traceable
@@ -63,17 +64,17 @@ _PCA_TITLE_PATH = _ML_DIR / "pca_title_v3.pkl"
 _PCA_DESC_PATH = _ML_DIR / "pca_desc_v3.pkl"
 
 _MODEL: object | None = None
-_META: dict | None = None
+_META: dict[str, Any] | None = None
 _PCA_TITLE: object | None = None
 _PCA_DESC: object | None = None
 
 try:
     with open(_MODEL_PATH, "rb") as _f:
         _MODEL = pickle.load(_f)
-    _MODEL.set_params(
+    _MODEL.set_params(  # type: ignore[union-attr]
         n_jobs=1
     )  # prevent OpenMP thread-count conflict with torch/sentence-transformers
-    with open(_META_PATH) as _f:
+    with open(_META_PATH) as _f:  # type: ignore[assignment]
         _META = json.load(_f)
     with open(_PCA_TITLE_PATH, "rb") as _f:
         _PCA_TITLE = pickle.load(_f)
@@ -176,7 +177,7 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
             normalize_embeddings=True,
             batch_size=1,
         )
-        title_pca = _PCA_TITLE.transform(title_emb)[0]
+        title_pca = _PCA_TITLE.transform(title_emb)[0]  # type: ignore[attr-defined]
 
         # ── Description embeddings → PCA (first 150 words) ─────────────────
         desc_text = " ".join(description.split()[:150])
@@ -186,7 +187,7 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
             normalize_embeddings=True,
             batch_size=1,
         )
-        desc_pca = _PCA_DESC.transform(desc_emb)[0]
+        desc_pca = _PCA_DESC.transform(desc_emb)[0]  # type: ignore[attr-defined]
 
         # ── Temporal features from current UTC time ────────────────────────
         now = datetime.now(UTC)
@@ -219,7 +220,7 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
         }
 
         x = np.array([[feat[col] for col in feature_cols]], dtype=float)
-        log_pred = float(_MODEL.predict(x)[0])
+        log_pred = float(_MODEL.predict(x)[0])  # type: ignore[attr-defined]
         pred = float(np.expm1(log_pred))
 
         # Apply per-category calibration if it was saved
@@ -272,7 +273,7 @@ def _build_fallback_query(item: Item, round_num: int) -> str:
             for t in text.split()
             if t.lower().strip("\"'.,!?()[]") not in stopwords and len(t) > 2
         ]
-        word_counts: Counter = Counter(tokens)
+        word_counts: Counter[str] = Counter(tokens)
         top = [w for w, _ in word_counts.most_common(6)]
         if brand and brand.lower() not in top:
             top = [brand, *top]

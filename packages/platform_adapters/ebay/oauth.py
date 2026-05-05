@@ -1,6 +1,7 @@
 import base64
 import urllib.parse
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import httpx
 
@@ -45,7 +46,7 @@ def build_authorization_url(state: str) -> str:
     return f"{_auth_url()}?{urllib.parse.urlencode(params)}"
 
 
-async def exchange_code(code: str) -> dict:
+async def exchange_code(code: str) -> dict[str, Any]:
     """Exchange authorization code for tokens. Returns the raw eBay token response dict."""
     async with httpx.AsyncClient() as client:
         r = await client.post(
@@ -61,10 +62,10 @@ async def exchange_code(code: str) -> dict:
             },
         )
         r.raise_for_status()
-        return r.json()
+        return cast(dict[str, Any], r.json())
 
 
-async def refresh_access_token(refresh_token: str) -> dict:
+async def refresh_access_token(refresh_token: str) -> dict[str, Any]:
     """Use a refresh token to get a new access token. Returns the raw eBay token response dict."""
     async with httpx.AsyncClient() as client:
         r = await client.post(
@@ -80,7 +81,7 @@ async def refresh_access_token(refresh_token: str) -> dict:
             },
         )
         r.raise_for_status()
-        return r.json()
+        return cast(dict[str, Any], r.json())
 
 
 def token_expiry(expires_in_seconds: int) -> datetime:

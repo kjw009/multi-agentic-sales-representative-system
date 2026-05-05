@@ -11,6 +11,7 @@ import json
 import logging
 import uuid
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 import openai
 from langsmith import traceable
@@ -391,7 +392,7 @@ async def _generate_listing_text(
 @traceable(name="intake_execute_tool", run_type="tool")
 async def execute_tool(
     tool_name: str,
-    tool_input: dict,
+    tool_input: dict[str, Any],
     seller_id: uuid.UUID,
     item_id: uuid.UUID | None,
     session: AsyncSession,
@@ -440,7 +441,7 @@ async def execute_tool(
         elif field == "seller_floor_price":
             try:
                 # Parse and set price as Decimal
-                item.seller_floor_price = Decimal(value)
+                item.seller_floor_price = Decimal(value)  # type: ignore[assignment]
             except InvalidOperation:
                 return "Error: seller_floor_price must be a number", item_id
 
@@ -485,7 +486,7 @@ async def execute_tool(
         if not item_id:
             return "Error: no item in progress to mark complete", item_id
         # Fetch the item and update status
-        item = await session.scalar(select(Item).where(Item.id == item_id))
+        item = await session.scalar(select(Item).where(Item.id == item_id))  # type: ignore[assignment]
         if not item:
             return "Error: item not found", item_id
         item.status = ItemStatus.intake_complete

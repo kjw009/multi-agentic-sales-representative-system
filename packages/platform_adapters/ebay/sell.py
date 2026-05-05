@@ -17,6 +17,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 from xml.sax.saxutils import escape as xml_escape
 
 import httpx
@@ -224,7 +225,7 @@ async def create_inventory_item(
     condition = _CONDITION_MAP.get(str(item.condition), "GOOD")
 
     # Build product payload
-    product: dict = {
+    product: dict[str, Any] = {
         "title": item.name[:80],  # eBay title limit
         "description": item.description or item.name,
         "imageUrls": image_urls[:12],  # eBay allows up to 12 images
@@ -388,7 +389,7 @@ async def ensure_business_policies(token: SellerToken) -> PolicyIds:
     )
 
 
-def _extract_duplicate_policy_id(response_json: dict, id_param_name: str) -> str | None:
+def _extract_duplicate_policy_id(response_json: dict[str, Any], id_param_name: str) -> str | None:
     """Extract the existing policy ID from an eBay 'already exists' error response."""
     for err in response_json.get("errors", []):
         if err.get("errorId") == 20400:
@@ -398,7 +399,7 @@ def _extract_duplicate_policy_id(response_json: dict, id_param_name: str) -> str
     return None
 
 
-async def _get_or_create_fulfillment_policy(existing: list, token: SellerToken) -> str:
+async def _get_or_create_fulfillment_policy(existing: list[Any], token: SellerToken) -> str:
     if existing:
         return existing[0]["fulfillmentPolicyId"]
 
@@ -441,7 +442,7 @@ async def _get_or_create_fulfillment_policy(existing: list, token: SellerToken) 
         raise RuntimeError("unreachable")
 
 
-async def _get_or_create_payment_policy(existing: list, token: SellerToken) -> str:
+async def _get_or_create_payment_policy(existing: list[Any], token: SellerToken) -> str:
     if existing:
         return existing[0]["paymentPolicyId"]
 
@@ -471,7 +472,7 @@ async def _get_or_create_payment_policy(existing: list, token: SellerToken) -> s
         raise RuntimeError("unreachable")
 
 
-async def _get_or_create_return_policy(existing: list, token: SellerToken) -> str:
+async def _get_or_create_return_policy(existing: list[Any], token: SellerToken) -> str:
     if existing:
         return existing[0]["returnPolicyId"]
 
@@ -927,7 +928,7 @@ async def end_listing(listing_id: str, reason: str, token: SellerToken) -> None:
 # ---------------------------------------------------------------------------
 
 
-def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict:
+def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict[str, Any]:
     """Build an eBay InventoryItem JSON payload from an internal Item.
 
     Exposed for unit testing — this is the same logic used by create_inventory_item
@@ -935,7 +936,7 @@ def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict:
     """
     condition = _CONDITION_MAP.get(str(item.condition), "GOOD")
 
-    product: dict = {
+    product: dict[str, Any] = {
         "title": item.name[:80],
         "description": item.description or item.name,
         "imageUrls": image_urls[:12],
@@ -957,7 +958,7 @@ def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict:
     if aspects:
         product["aspects"] = aspects
 
-    payload: dict = {
+    payload: dict[str, Any] = {
         "product": product,
         "condition": condition,
         "availability": {

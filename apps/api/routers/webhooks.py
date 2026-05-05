@@ -10,7 +10,7 @@ router = APIRouter(prefix="/ebay", tags=["webhooks-ebay"])
 
 
 @router.get("/webhook")
-async def ebay_webhook_challenge(challenge_code: str):
+async def ebay_webhook_challenge(challenge_code: str) -> dict[str, str] | Response:
     """
     eBay Event Notification challenge validation.
     Respond to eBay's endpoint validation request.
@@ -25,7 +25,7 @@ async def ebay_webhook_challenge(challenge_code: str):
 
 
 @router.post("/webhook")
-async def ebay_webhook_receive(request: Request):
+async def ebay_webhook_receive(request: Request) -> Response:
     """
     Receive eBay Event Notifications.
     """
