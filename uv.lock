@@ -3459,20 +3459,16 @@ dependencies = [
     { name = "httpx" },
     { name = "langgraph" },
     { name = "langsmith" },
-    { name = "lightgbm" },
     { name = "openai" },
-    { name = "optuna" },
     { name = "pgvector" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
     { name = "python-multipart" },
-    { name = "scikit-learn" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
-    { name = "xgboost" },
 ]
 
 [package.optional-dependencies]
@@ -3485,7 +3481,9 @@ dev = [
     { name = "ruff" },
 ]
 ml = [
+    { name = "lightgbm" },
     { name = "numpy" },
+    { name = "optuna" },
     { name = "pandas" },
     { name = "scikit-learn" },
     { name = "xgboost" },
@@ -3520,11 +3518,11 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "langgraph", specifier = ">=0.2" },
     { name = "langsmith", specifier = ">=0.3" },
-    { name = "lightgbm", specifier = ">=4.6.0" },
+    { name = "lightgbm", marker = "extra == 'ml'", specifier = ">=4.6.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "numpy", marker = "extra == 'ml'", specifier = ">=2.1" },
     { name = "openai", specifier = ">=1.75" },
-    { name = "optuna", specifier = ">=4.8.0" },
+    { name = "optuna", marker = "extra == 'ml'", specifier = ">=4.8.0" },
     { name = "pandas", marker = "extra == 'ml'", specifier = ">=2.2" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "playwright", marker = "extra == 'scraping'", specifier = ">=1.48" },
@@ -3538,8 +3536,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.12" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
-    { name = "scikit-learn", specifier = ">=1.8.0" },
-    { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.5" },
+    { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.8.0" },
     { name = "scrapy", marker = "extra == 'scraping'", specifier = ">=2.11" },
     { name = "sentence-transformers", marker = "extra == 'nlp'", specifier = ">=3.3" },
     { name = "spacy", marker = "extra == 'nlp'", specifier = ">=3.8" },
@@ -3547,8 +3544,7 @@ requires-dist = [
     { name = "structlog", specifier = ">=24.4" },
     { name = "transformers", marker = "extra == 'nlp'", specifier = ">=4.46" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
-    { name = "xgboost", specifier = ">=3.2.0" },
-    { name = "xgboost", marker = "extra == 'ml'", specifier = ">=2.1" },
+    { name = "xgboost", marker = "extra == 'ml'", specifier = ">=3.2.0" },
 ]
 provides-extras = ["ml", "nlp", "scraping", "dev"]
 
