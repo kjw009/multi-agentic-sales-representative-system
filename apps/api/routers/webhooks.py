@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from packages.platform_adapters.ebay.webhooks import validate_endpoint_challenge
 
@@ -10,7 +11,7 @@ router = APIRouter(prefix="/ebay", tags=["webhooks-ebay"])
 
 
 @router.get("/webhook")
-async def ebay_webhook_challenge(challenge_code: str) -> dict[str, str] | Response:
+async def ebay_webhook_challenge(challenge_code: str) -> Response:
     """
     eBay Event Notification challenge validation.
     Respond to eBay's endpoint validation request.
@@ -18,7 +19,7 @@ async def ebay_webhook_challenge(challenge_code: str) -> dict[str, str] | Respon
     logger.info(f"Received eBay webhook challenge validation request. Code: {challenge_code}")
     try:
         response_hash = validate_endpoint_challenge(challenge_code)
-        return {"challengeResponse": response_hash}
+        return JSONResponse({"challengeResponse": response_hash})
     except Exception as e:
         logger.error(f"Failed to validate endpoint challenge: {e}")
         return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
