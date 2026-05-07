@@ -13,10 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from packages.config import settings
 
-# Create async SQLAlchemy engine using the database URL from settings
+# --- 1. Engine Setup ---
+# create_async_engine manages the low-level connection pool to PostgreSQL
 engine = create_async_engine(settings.database_url, future=True)
 
-# Create async session maker with engine, disabling expire_on_commit for better performance
+# --- 2. Session Configuration ---
+# SessionLocal is a factory for creating individual database transactions
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
@@ -32,7 +34,13 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 
 async def set_current_seller_id(session: AsyncSession, seller_id: uuid.UUID) -> None:
-    """Set the RLS context for the current transaction.
+    """
+    Set the RLS context for the current transaction.
+
+    Security Layer: Injects the current user's ID into the Postgres session.
+    
+    This allows the database itself to filter data so that users can 
+    only see rows belonging to their specific 'seller_id'.
 
     SET LOCAL scopes the setting to the current transaction so it cannot leak
     across requests when connections are reused from the pool.
