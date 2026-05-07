@@ -163,7 +163,8 @@ TOOL_DEFINITIONS = [
             "description": (
                 "Ask the seller a follow-up question to gather missing or enrichment information. "
                 "Ask one question at a time. Use this for both missing required fields AND "
-                "for enrichment details that will improve the listing title/description."
+                "for enrichment details and remaining enrichment details to gather that will"
+                "improve the listing title/description."
             ),
             "parameters": {
                 "type": "object",
@@ -221,7 +222,8 @@ TOOL_DEFINITIONS = [
             "description": (
                 "Generate an optimised eBay listing title and description from the "
                 "raw details the seller has provided. Call this once you have gathered "
-                "enough details (item type, brand, key specs, condition) but BEFORE "
+                "all required details (item type, brand, key specs, condition...etc) and "
+                "all enrinchement details to improve the listing, but BEFORE "
                 "calling mark_intake_complete. The generated title and description "
                 "will be saved to the item automatically. Present the result to the "
                 "seller for approval."
@@ -236,9 +238,9 @@ TOOL_DEFINITIONS = [
                     "details": {
                         "type": "string",
                         "description": (
-                            "All details gathered so far in a structured summary: "
-                            "brand, model, size, colour, condition, age, defects, "
-                            "included accessories, specs, etc."
+                            "All details and category enrinchment attributes gathered so far "
+                            "in a structured summary: brand, model, size, colour, condition, "
+                            "age, defects, included accessories, specs, etc."
                         ),
                     },
                     "category": {
@@ -273,9 +275,10 @@ TOOL_DEFINITIONS = [
             "name": "mark_intake_complete",
             "description": (
                 "Mark intake as complete once you have: (1) recorded all attributes, "
-                "(2) called generate_listing to produce an optimised title/description, "
-                "(3) the seller has approved or you have presented the listing, and "
-                "(4) asked for at least one image."
+                "(2) gathered all category enrinchment details, "
+                "(3) called generate_listing to produce an optimised title/description, "
+                "(4) the seller has approved or you have presented the listing, and "
+                "(5) asked for at least one image."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -366,10 +369,10 @@ async def _generate_listing_text(
     response = await client.chat.completions.create(
         model=settings.model_agent1,
         messages=[
-            {"role": "system", "content": _LISTING_GEN_SYSTEM},
-            {"role": "user", "content": user_content},
+            {"role": "system", "content": _LISTING_GEN_SYSTEM}, # Give model instructions in system prompt
+            {"role": "user", "content": user_content}, # Give user content in user prompt
         ],
-        temperature=0.3,
+        temperature=0.3, # Reduce temperature for more deterministic output
     )
 
     text = (response.choices[0].message.content or "").strip()
