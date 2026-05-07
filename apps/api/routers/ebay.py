@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # APIRouter for eBay OAuth endpoints
 router = APIRouter(prefix="/auth/ebay", tags=["ebay-oauth"])
 
+# prevent CSRF (Cross-Site Request Forgery) attacks by using a state nonce, 
+# see https://www.rfc-editor.org/rfc/rfc7636 (IETF)
+# This allows user to connect back with ebay after  ebay authentication redirects back to the chat page.
 # Time-to-live for OAuth state nonce in Redis (10 minutes)
 _STATE_TTL = 600  # seconds — how long the state nonce lives in Redis
 
@@ -35,6 +38,8 @@ _FRONTEND_CHAT = "http://localhost:3000/chat"
 
 def _redis() -> Any:
     """
+    Connects to Redis to store temporary OAuth session data.
+
     Helper function to create an async Redis client.
 
     Returns a Redis connection using the URL from settings, with decode_responses enabled.
@@ -47,6 +52,8 @@ def _redis() -> Any:
 @router.get("/connect")
 async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict[str, Any]:  # noqa: B008
     """
+    Generate a login URL. The frontend calls and redirects user to ebay.
+
     Returns the eBay authorization URL. The frontend should redirect the user there.
     Stores PKCE verifier + seller_id in Redis keyed by the state nonce.
     """
@@ -54,6 +61,7 @@ async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict[str
 
     r = _redis()
     try:
+        # Link the seller to the state nonce in Redis for verification after redirect.
         await r.setex(
             f"ebay:oauth:state:{state}",
             _STATE_TTL,
@@ -80,11 +88,12 @@ async def ebay_callback(
 
     On decline: eBay redirects without a code. We redirect to ?ebay=declined.
     """
-    # Handle declined consent
+    # Handle declined consent (if user clicks "decline" on eBay).
     if declined or code is None:
         logger.info("eBay OAuth consent was declined")
         return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=declined", status_code=302)
 
+    # Verify state exists in Redis for this request (CSRF protection).
     if state is None:
         logger.warning("eBay OAuth callback received without state parameter")
         return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
@@ -103,6 +112,7 @@ async def ebay_callback(
     data = json.loads(stored)
     seller_id = uuid.UUID(data["seller_id"])
 
+    # Exchange the code for tokens (Short-lived access token + Long-lived refresh token)
     try:
         token_data = await exchange_code(code)
     except httpx.HTTPStatusError as exc:
@@ -150,7 +160,8 @@ async def ebay_status(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, Any]:
     """
-    Check whether the current seller has a connected eBay account.
+    The frontend polls this endpoint to check if the current seller has a connected eBay account 
+    and determine if the "Connect Ebay" button should be green or greyed out
     Returns connection status and token expiry if connected.
     """
     cred = await session.scalar(
