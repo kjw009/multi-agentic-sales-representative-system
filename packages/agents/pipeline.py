@@ -5,6 +5,7 @@ This graph is triggered once per item, after Agent 1 calls mark_intake_complete.
 It is intentionally separate from the per-message intake graph.
 """
 
+import logging
 import uuid
 from typing import Any, TypedDict
 
@@ -16,6 +17,8 @@ from sqlalchemy import select
 from packages.agents.pricing.agent import run as run_pricing
 from packages.agents.publisher.agent import run as run_publisher
 from packages.db.models import Item, ItemStatus
+
+logger = logging.getLogger(__name__)
 
 
 # --- The "Envelope" that carries data between nodes ---
@@ -59,6 +62,15 @@ async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict[str
             "confidence_score": result.confidence_score,
         }
     except Exception as exc:
+        logger.exception("[Pipeline] Pricing node crashed for item %s", item_id)
+        # Park the item in error so the UI stops polling forever and the
+        # traceback above pinpoints the cause.
+        item = await session.scalar(
+            select(Item).where(Item.id == item_id, Item.seller_id == seller_id)
+        )
+        if item:
+            item.status = ItemStatus.error
+            await session.commit()
         return {"error": f"Pricing failed: {exc}"}
 
 
@@ -92,6 +104,7 @@ async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[s
         )
         return {"listing_status": result.status, "listing_url": result.listing_url}
     except Exception as exc:
+        logger.exception("[Pipeline] Publisher node crashed for item %s", item_id)
         return {"error": f"Publishing failed: {exc}"}
 
 
