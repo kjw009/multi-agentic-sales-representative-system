@@ -637,27 +637,138 @@ class PublishResult:
     listing_url: str
 
 
+# Common colours we can detect in free text. Order matters when overlap is
+# possible — multi-word phrases first so "rose gold" wins over "gold".
+_COLOUR_PATTERNS = (
+    "rose gold",
+    "smoky pink",
+    "midnight black",
+    "matte black",
+    "matte white",
+    "space grey",
+    "space gray",
+    "silver",
+    "gold",
+    "black",
+    "white",
+    "red",
+    "blue",
+    "green",
+    "yellow",
+    "pink",
+    "purple",
+    "grey",
+    "gray",
+    "navy",
+    "beige",
+    "tan",
+    "brown",
+    "orange",
+    "ivory",
+    "cream",
+)
+
+
+def _detect_colour(text: str) -> str | None:
+    lowered = text.lower()
+    for colour in _COLOUR_PATTERNS:
+        # Word-boundary match so e.g. "tan" doesn't match inside "standard".
+        if re.search(rf"\b{re.escape(colour)}\b", lowered):
+            return colour.title()
+    return None
+
+
+def _detect_connectivity(text: str) -> str | None:
+    """Best-effort connectivity detection (Wireless / Bluetooth / Wired)."""
+    lowered = text.lower()
+    if "true wireless" in lowered:
+        return "True Wireless"
+    if "wireless" in lowered or "bluetooth" in lowered:
+        return "Wireless"
+    if "wired" in lowered or "3.5mm" in lowered:
+        return "Wired"
+    return None
+
+
+def _detect_model(item: Item) -> str | None:
+    """Model = item name with the brand stripped off, if present.
+
+    e.g. brand='Sony', name='Sony WH-1000XM5 Wireless Headphones'
+        → 'WH-1000XM5 Wireless Headphones'.
+    """
+    name = (item.name or "").strip()
+    if not name:
+        return None
+    brand = (item.brand or "").strip()
+    if brand and name.lower().startswith(brand.lower()):
+        candidate = name[len(brand) :].strip(" -:")
+        return candidate or None
+    return name
+
+
+# Category → safe default 'Type' value when we can't extract one from the
+# item text. eBay accepts free-text values for Type in most categories.
+_CATEGORY_TYPE_DEFAULT = {
+    "Headphones": "Other",
+    "Speakers": "Other",
+    "Laptops": "Notebook/Laptop",
+    "Phones": "Smartphone",
+    "Tablets": "Other",
+    "Watches": "Wristwatch",
+    "Cameras": "Other",
+    "Trainers": "Trainer",
+    "Shoes": "Other",
+    "Clothing": "Other",
+    "Headphones Type": "Other",
+}
+
+
 def _build_item_specifics(item: Item) -> dict[str, str]:
-    """Extract key item specifics from an Item's fields and name for Trading API."""
+    """Extract key item specifics from an Item's fields and name for Trading API.
+
+    eBay categories enforce a set of required ItemSpecifics (e.g. Headphones
+    requires Brand, Model, Type, Connectivity, Colour). Missing any of them
+    causes AddFixedPriceItem to 400. We extract what we can from the
+    name/description, then fill the rest with safe fallbacks so the listing
+    can publish even when the intake agent didn't capture every field.
+    """
     specifics: dict[str, str] = {}
-
-    if item.brand:
-        specifics["Brand"] = item.brand
-
-    # Parse common specs from item name/description
     text = f"{item.name or ''} {item.description or ''}"
 
-    # Screen size: "15-Inch", "15.6 inch", "13\"", etc.
+    # ── Brand ───────────────────────────────────────────────────────────────
+    if item.brand:
+        specifics["Brand"] = item.brand
+    else:
+        specifics["Brand"] = "Unbranded"
+
+    # ── Model ───────────────────────────────────────────────────────────────
+    model = _detect_model(item)
+    if model:
+        specifics["Model"] = model[:65]  # eBay caps at 65 chars
+
+    # ── Colour / Connectivity / Type — required for several categories ──────
+    colour = _detect_colour(text)
+    specifics["Colour"] = colour or "Multicolour"
+
+    connectivity = _detect_connectivity(text)
+    if connectivity:
+        specifics["Connectivity"] = connectivity
+    elif (item.category or "").strip() in {"Headphones", "Speakers"}:
+        specifics["Connectivity"] = "Wireless"
+
+    type_default = _CATEGORY_TYPE_DEFAULT.get((item.category or "").strip())
+    if type_default:
+        specifics["Type"] = type_default
+
+    # ── Laptop / phone specs (legacy regex extraction) ──────────────────────
     m = re.search(r'(\d+(?:\.\d+)?)\s*["\-]?(?:inch|in\b)', text, re.IGNORECASE)
     if m:
         specifics["Screen Size"] = f"{m.group(1)} in"
 
-    # Apple Silicon: M1/M2/M3/M4 [Pro/Max/Ultra]
     m = re.search(r"\b(M[1-4](?:\s*(?:Pro|Max|Ultra))?)\b", text, re.IGNORECASE)
     if m:
         specifics["Processor"] = f"Apple {m.group(1).strip()}"
     else:
-        # Intel/AMD processor
         m = re.search(
             r"\b(Core\s+i[3579][-\s]\d+\w*|Ryzen\s+\d+\s*\d+\w*|Celeron\s+\w+)\b",
             text,
@@ -666,17 +777,15 @@ def _build_item_specifics(item: Item) -> dict[str, str]:
         if m:
             specifics["Processor"] = m.group(1)
 
-    # RAM: "16GB RAM", "16 GB"
     m = re.search(r"(\d+)\s*GB\s*RAM", text, re.IGNORECASE)
     if m:
         specifics["RAM Size"] = f"{m.group(1)} GB"
 
-    # Storage: "256GB SSD", "512GB SSD", "1TB SSD"
     m = re.search(r"(\d+)\s*(GB|TB)\s*SSD", text, re.IGNORECASE)
     if m:
         specifics["SSD Capacity"] = f"{m.group(1)} {m.group(2).upper()}"
 
-    # Any extra attributes the intake agent stored
+    # ── Any extra attributes the intake agent stored win over defaults ──────
     attrs = item.attributes or {}
     for key, val in attrs.items():
         if key not in {"brand"} and val:
