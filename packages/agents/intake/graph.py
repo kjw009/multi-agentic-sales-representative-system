@@ -121,6 +121,7 @@ class IntakeState(TypedDict):
     The 'Memory' of the conversation.
     LangGraph persists this between messages so the AI doesn't 'forget' the item_id.
     """
+
     seller_id: str
     item_id: str | None
     messages: list[dict[str, Any]]
@@ -372,6 +373,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
         "complete": complete,
         "needs_image": needs_image,
     }
+
 
 # This is the main graph builder which defines the entry point and the end point
 # and adds the nodes to the graph - there is only one node in this case.
