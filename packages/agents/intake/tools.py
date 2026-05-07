@@ -366,16 +366,14 @@ async def _generate_listing_text(
 
     user_content = f"Category: {category}\nSeller's description: {raw_title}\nDetails:\n{details}"
 
+    # NOTE: no temperature override — current Azure model deployments (e.g.
+    # GPT-5 / reasoning models) reject any value other than the default.
     response = await client.chat.completions.create(
         model=settings.model_agent1,
         messages=[
-            {
-                "role": "system",
-                "content": _LISTING_GEN_SYSTEM,
-            },  # Give model instructions in system prompt
-            {"role": "user", "content": user_content},  # Give user content in user prompt
+            {"role": "system", "content": _LISTING_GEN_SYSTEM},
+            {"role": "user", "content": user_content},
         ],
-        temperature=0.3,  # Reduce temperature for more deterministic output
     )
 
     text = (response.choices[0].message.content or "").strip()

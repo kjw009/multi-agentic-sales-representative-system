@@ -178,7 +178,6 @@ async def validate_comparables(
                 {"role": "system", "content": _VALIDATE_SYSTEM},
                 {"role": "user", "content": user_content},
             ],
-            temperature=0,
             response_format={"type": "json_object"},
         )
         raw = (response.choices[0].message.content or "").strip()
