@@ -7,7 +7,8 @@ It is intentionally separate from the per-message intake graph.
 
 import logging
 import uuid
-from typing import Any, TypedDict
+from typing import Any
+from pydantic import BaseModel
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- The "Envelope" that carries data between nodes ---
-class PipelineState(TypedDict):
+class PipelineState(BaseModel):
     seller_id: str
     item_id: str
     recommended_price: float
@@ -36,8 +37,8 @@ class PipelineState(TypedDict):
 async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
     # Node 1: Pricing - This node is responsible for pricing the item and saving the price to the database.
     session = config["configurable"]["session"]
-    item_id = uuid.UUID(state["item_id"])
-    seller_id = uuid.UUID(state["seller_id"])
+    item_id = uuid.UUID(state.item_id)
+    seller_id = uuid.UUID(state.seller_id)
 
     try:
         # Call the pricing agent
@@ -77,12 +78,12 @@ async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict[str
 @traceable(name="pipeline_publisher_node", run_type="chain")
 async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
     # Node 2: Publisher - This node is responsible for publishing the item to eBay.
-    if state.get("error"):
+    if state.error:
         return {}  # Stop the pipeline if there was an error in the pricing node
 
     session = config["configurable"]["session"]
-    item_id = uuid.UUID(state["item_id"])
-    seller_id = uuid.UUID(state["seller_id"])
+    item_id = uuid.UUID(state.item_id)
+    seller_id = uuid.UUID(state.seller_id)
 
     from packages.schemas.agents import PricingResult
 
@@ -92,8 +93,8 @@ async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[s
 
     pricing = PricingResult(
         item_id=item_id,
-        recommended_price=state["recommended_price"],
-        confidence_score=state["confidence_score"],
+        recommended_price=state.recommended_price,
+        confidence_score=state.confidence_score,
         min_acceptable_price=min_price,
     )
 
@@ -130,15 +131,15 @@ async def run_pipeline(seller_id: uuid.UUID, item_id: uuid.UUID) -> None:
 
     async with SessionLocal() as session:
         await pipeline.ainvoke(
-            {
-                "seller_id": str(seller_id),
-                "item_id": str(item_id),
-                "recommended_price": 0.0,
-                "confidence_score": 0.0,
-                "listing_status": "pending",
-                "listing_url": None,
-                "error": None,
-            },
+            PipelineState(
+                seller_id=str(seller_id),
+                item_id=str(item_id),
+                recommended_price=0.0,
+                confidence_score=0.0,
+                listing_status="pending",
+                listing_url=None,
+                error=None,
+            ),
             config={
                 "configurable": {"session": session},
                 "run_name": f"listing_pipeline_{item_id}",
