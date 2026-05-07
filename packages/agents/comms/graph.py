@@ -46,6 +46,7 @@ async def comms_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
         "requires_approval": result.requires_approval,
     }
 
+
 # Build the graph
 _builder: StateGraph[CommsState] = StateGraph(CommsState)
 _builder.add_node("comms", comms_node)

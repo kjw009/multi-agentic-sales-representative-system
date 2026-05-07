@@ -124,7 +124,7 @@ def _get_sentence_model():
 _DEFAULT_FLOOR_RATIO = 0.70  # Default minimum price is 70% of recommended
 _MODEL_WEIGHT = 0.60  # ML Model contributes 60% to final price
 _TARGET_COMPARABLES = 20  # Try to find 20 matching items on eBay
-_MAX_SEARCH_ROUNDS = 2  # How many times to re-search if results are poor   
+_MAX_SEARCH_ROUNDS = 2  # How many times to re-search if results are poor
 
 # ---------------------------------------------------------------------------
 # Condition → v3 ordinal  (mirrors notebook CONDITION_ORDINAL)
@@ -279,7 +279,7 @@ def _build_fallback_query(item: Item, round_num: int) -> str:
         top = [w for w, _ in word_counts.most_common(6)]
         if brand and brand.lower() not in top:
             top = [brand, *top]
-        # 7 keywords + category to be used as search query  
+        # 7 keywords + category to be used as search query
         return " ".join(top[:7])
 
     # Round 3+: bare category + brand

@@ -38,8 +38,8 @@ async def set_current_seller_id(session: AsyncSession, seller_id: uuid.UUID) -> 
     Set the RLS context for the current transaction.
 
     Security Layer: Injects the current user's ID into the Postgres session.
-    
-    This allows the database itself to filter data so that users can 
+
+    This allows the database itself to filter data so that users can
     only see rows belonging to their specific 'seller_id'.
 
     SET LOCAL scopes the setting to the current transaction so it cannot leak

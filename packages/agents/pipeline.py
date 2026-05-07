@@ -17,6 +17,7 @@ from packages.agents.pricing.agent import run as run_pricing
 from packages.agents.publisher.agent import run as run_publisher
 from packages.db.models import Item, ItemStatus
 
+
 # --- The "Envelope" that carries data between nodes ---
 class PipelineState(TypedDict):
     seller_id: str
@@ -65,7 +66,7 @@ async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict[str
 async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
     # Node 2: Publisher - This node is responsible for publishing the item to eBay.
     if state.get("error"):
-        return {} # Stop the pipeline if there was an error in the pricing node
+        return {}  # Stop the pipeline if there was an error in the pricing node
 
     session = config["configurable"]["session"]
     item_id = uuid.UUID(state["item_id"])

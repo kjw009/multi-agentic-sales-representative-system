@@ -3,15 +3,17 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     """
     Central configuration class. Pydantic automatically reads environment variables
     and matches them to these attributes (e.g., APP_ENV in .env maps to app_env).
     """
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore", # Don't crash if extra variables are in the .env
+        extra="ignore",  # Don't crash if extra variables are in the .env
         case_sensitive=False,
     )
 
@@ -20,20 +22,20 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Database (Postgres)
-    database_url: str = "postgresql+asyncpg://salesrep:salesrep@localhost:5432/salesrep" # Uses asyncpg for asynchronous database operations.
+    database_url: str = "postgresql+asyncpg://salesrep:salesrep@localhost:5432/salesrep"  # Uses asyncpg for asynchronous database operations.
 
     # Redis (for short-lived caching, e.g. OAuth state)
     redis_url: str = "redis://localhost:6379/0"  # use ElastiCache in production
 
     # AWS SQS (for asynchronous job processing)
-    sqs_queue_url: str = "" # URL of the SQS queue for asynchronous processing
+    sqs_queue_url: str = ""  # URL of the SQS queue for asynchronous processing
     sqs_region: str = "us-east-1"
     internal_api_key: str = ""  # shared secret for EventBridge Scheduler → /internal/* endpoints
 
     eventbridge_bus_name: str = ""  # empty = log events locally instead of sending to EventBridge
     aws_region: str = "eu-west-2"
 
-    # AWS S3 (for storing item images) 
+    # AWS S3 (for storing item images)
     s3_endpoint_url: str = "http://localhost:9000"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
@@ -80,9 +82,9 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """ 
-    This is a performance optimization. 
-    Creating a Pydantic object and reading the disk for a .env file is "expensive" in terms of CPU time. 
+    """
+    This is a performance optimization.
+    Creating a Pydantic object and reading the disk for a .env file is "expensive" in terms of CPU time.
     By using @lru_cache, the settings are loaded once the first time the function is called.
     Every subsequent call returns the exact same object from memory instantly.
     """
@@ -97,7 +99,7 @@ def configure_tracing() -> None:
     Injects LangSmith configuration into the system environment.
     This must be called at the very beginning of the application lifecycle
     so that the LangChain/LangGraph SDKs detect the environment variables.
-    
+
     Push LangSmith env vars so the SDK picks them up globally.
 
     Call this once at process startup (API, Celery worker) *before* any

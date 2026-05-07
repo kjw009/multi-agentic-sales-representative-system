@@ -15,15 +15,16 @@ from packages.db.session import get_session
 from packages.schemas.agents import ComparableListing, PricingResult
 from packages.schemas.intake import MessageRequest, MessageResponse
 
-# The route for the intake agent. This agent is responsible for gathering information about the item 
+# The route for the intake agent. This agent is responsible for gathering information about the item
 router = APIRouter(prefix="/agent/intake", tags=["intake"])
+
 
 @router.post("/message", response_model=MessageResponse)
 async def intake_message(
     body: MessageRequest,
     background_tasks: BackgroundTasks,
-    seller: Seller = Depends(get_current_seller),  
-    session: AsyncSession = Depends(get_session),  
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
 ) -> MessageResponse:
     """
     Handle a message from the seller to the intake agent.
@@ -42,8 +43,8 @@ async def intake_message(
         role=ChatRole.user,
         content=body.content,
     )
-    session.add(user_msg) 
-    await session.flush() # Ensure the message gets a database ID immediately
+    session.add(user_msg)
+    await session.flush()  # Ensure the message gets a database ID immediately
 
     # Run the core intake agent logic
     reply_text, item_id, needs_image, complete = await run_agent(
@@ -62,15 +63,15 @@ async def intake_message(
         content=reply_text,
     )
     session.add(assistant_msg)
-    await session.commit() # Save both messages to the DB
+    await session.commit()  # Save both messages to the DB
 
     # If the conversation is complete, start the downstream pipeline (pricing/publishing)
     if complete and item_id:
-        if settings.sqs_queue_url: # Use SQS for async processing
+        if settings.sqs_queue_url:  # Use SQS for async processing
             from packages.bus.sqs import enqueue
 
             enqueue("run_pipeline", seller_id=str(seller.id), item_id=str(item_id))
-        else: # Use background tasks for sync processing
+        else:  # Use background tasks for sync processing
             background_tasks.add_task(run_pipeline, seller.id, item_id)
 
     # Return the agent's response

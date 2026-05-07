@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # APIRouter for eBay OAuth endpoints
 router = APIRouter(prefix="/auth/ebay", tags=["ebay-oauth"])
 
-# prevent CSRF (Cross-Site Request Forgery) attacks by using a state nonce, 
+# prevent CSRF (Cross-Site Request Forgery) attacks by using a state nonce,
 # see https://www.rfc-editor.org/rfc/rfc7636 (IETF)
 # This allows user to connect back with ebay after  ebay authentication redirects back to the chat page.
 # Time-to-live for OAuth state nonce in Redis (10 minutes)
@@ -160,7 +160,7 @@ async def ebay_status(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, Any]:
     """
-    The frontend polls this endpoint to check if the current seller has a connected eBay account 
+    The frontend polls this endpoint to check if the current seller has a connected eBay account
     and determine if the "Connect Ebay" button should be green or greyed out
     Returns connection status and token expiry if connected.
     """
