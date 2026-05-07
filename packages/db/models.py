@@ -71,6 +71,21 @@ class MessageDirection(enum.StrEnum):
     outbound = "outbound"
 
 
+class IntentLabel(enum.StrEnum):
+    # Buyer-message intent inferred by the NLP pipeline
+    offer = "offer"
+    question = "question"
+    status_check = "status_check"
+    spam = "spam"
+    other = "other"
+
+
+class SentimentLabel(enum.StrEnum):
+    positive = "positive"
+    neutral = "neutral"
+    negative = "negative"
+
+
 # --- MODELS ---
 class Seller(Base):
     __tablename__ = "sellers"
@@ -305,6 +320,11 @@ class PlatformCredential(Base):
         nullable=False,
     )
 
+    # External user ID on the platform (e.g. eBay's userId).
+    # Populated after OAuth via the platform's identity API. Used by inbound
+    # webhooks to map a notification's seller back to our internal seller_id.
+    external_user_id: Mapped[str | None] = mapped_column(String(255), index=True)
+
     # Encrypted tokens (never store raw OAuth tokens)
     oauth_token_enc: Mapped[str] = mapped_column(Text, nullable=False)
     refresh_token_enc: Mapped[str | None] = mapped_column(Text)
@@ -476,3 +496,52 @@ class BuyerMessage(Base):
 
     # Relationships
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
+    annotation: Mapped["NLPAnnotation | None"] = relationship(
+        "NLPAnnotation",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class NLPAnnotation(Base):
+    """One-to-one NLP analysis output for a BuyerMessage."""
+
+    __tablename__ = "nlp_annotations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("buyer_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    intent: Mapped[IntentLabel] = mapped_column(
+        Enum(IntentLabel, name="intent_label"),
+        nullable=False,
+    )
+    intent_confidence: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+
+    sentiment: Mapped[SentimentLabel] = mapped_column(
+        Enum(SentimentLabel, name="sentiment_label"),
+        nullable=False,
+    )
+    sentiment_confidence: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+
+    # Promoted out of `entities` so we can index/query "all unanswered offers".
+    extracted_offer_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+
+    entities: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    # Identifies which model/ruleset produced this row — required for audit and
+    # safe re-classification when we ship a new pipeline version.
+    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    message: Mapped["BuyerMessage"] = relationship("BuyerMessage", back_populates="annotation")
