@@ -14,7 +14,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def signup(
     body: SignupRequest,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     """
     Handle user signup by creating a new seller account.
@@ -38,7 +38,7 @@ async def signup(
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)) -> TokenResponse:  # noqa: B008
+async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)) -> TokenResponse:
     """
     Handle user login by verifying credentials and returning an access token.
 

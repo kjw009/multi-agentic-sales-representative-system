@@ -50,7 +50,7 @@ def _redis() -> Any:
 
 
 @router.get("/connect")
-async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict[str, Any]:  # noqa: B008
+async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict[str, Any]:
     """
     Generate a login URL. The frontend calls and redirects user to ebay.
 
@@ -78,7 +78,7 @@ async def ebay_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     declined: str | None = Query(default=None),
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    session: AsyncSession = Depends(get_session),
 ) -> RedirectResponse:
     """
     eBay redirects the seller's browser here after consent.
@@ -156,8 +156,8 @@ async def ebay_callback(
 
 @router.get("/status")
 async def ebay_status(
-    seller: Seller = Depends(get_current_seller),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """
     The frontend polls this endpoint to check if the current seller has a connected eBay account

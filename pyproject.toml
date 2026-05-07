@@ -83,7 +83,7 @@ extend-exclude = ["notebooks/*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
-ignore = ["E501"]
+ignore = ["E501", "B008"]
 
 [tool.mypy]
 python_version = "3.12"

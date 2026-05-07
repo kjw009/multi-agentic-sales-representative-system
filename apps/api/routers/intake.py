@@ -86,8 +86,8 @@ async def intake_message(
 @router.get("/pricing/{item_id}", response_model=PricingResult | None)
 async def get_pricing(
     item_id: uuid.UUID,
-    seller: Seller = Depends(get_current_seller),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
 ) -> PricingResult | None:
     """
     Return the pricing result for an item once the pipeline has completed.
@@ -121,8 +121,8 @@ async def get_pricing(
 @router.get("/listing/{item_id}")
 async def get_listing_status(
     item_id: uuid.UUID,
-    seller: Seller = Depends(get_current_seller),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any] | None:
     """
     Return the listing status for an item once publishing has started.

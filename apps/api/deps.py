@@ -15,8 +15,8 @@ _bearer = HTTPBearer()
 
 
 async def get_current_seller(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    credentials: HTTPAuthorizationCredentials = Depends(_bearer),
+    session: AsyncSession = Depends(get_session),
 ) -> Seller:
     """
     FastAPI dependency to authenticate and retrieve the current seller from JWT token.

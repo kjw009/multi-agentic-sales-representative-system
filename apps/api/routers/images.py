@@ -29,10 +29,10 @@ _ALLOWED = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 @router.post("/upload-image")
 async def upload_item_image(
-    item_id: uuid.UUID = Query(...),  # noqa: B008
-    file: UploadFile = File(...),  # noqa: B008
-    seller: Seller = Depends(get_current_seller),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    item_id: uuid.UUID = Query(...),
+    file: UploadFile = File(...),
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """
     Upload an image for a specific item.
