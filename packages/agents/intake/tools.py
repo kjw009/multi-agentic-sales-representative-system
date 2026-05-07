@@ -60,6 +60,48 @@ CATEGORY_LIST = [
     "Other",
 ]
 
+
+# Keyword → category fallback used when the LLM skips the category inference
+# step. Order matters where overlap exists (e.g. specific patterns first).
+_CATEGORY_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("headphone", "earbud", "earphone", "airpod"), "Headphones"),
+    (("soundbar", "subwoofer", "speaker"), "Speakers"),
+    (("macbook", "thinkpad", "laptop", "notebook computer"), "Laptops"),
+    (("ipad", "kindle", "tablet"), "Tablets"),
+    (("iphone", "galaxy s", "pixel ", "smartphone", "phone"), "Phones"),
+    (("monitor", "display"), "Monitors"),
+    (("trainer", "sneaker", "running shoe"), "Trainers"),
+    (("shoe", "boot", "loafer", "sandal"), "Shoes"),
+    (("watch", "smartwatch"), "Watches"),
+    (("dslr", "mirrorless camera", "camera"), "Cameras"),
+    (("camera lens", "prime lens", "zoom lens"), "Camera Lenses"),
+    (("xbox", "playstation", "ps5", "ps4", "nintendo switch"), "Gaming Consoles"),
+    (("video game", "game cartridge"), "Video Games"),
+    (("guitar", "piano", "violin", "drum kit"), "Musical Instruments"),
+    (("bicycle", "bike"), "Bicycles"),
+    (("treadmill", "dumbbell", "kettlebell"), "Fitness Equipment"),
+    (("rucksack", "backpack", "suitcase", "luggage"), "Bags & Luggage"),
+    (("necklace", "bracelet", "earring", "ring"), "Jewellery"),
+    (("imac", "desktop computer", "desktop pc"), "Desktop Computers"),
+)
+
+
+def infer_category(name: str) -> str | None:
+    """Best-effort category inference from item name.
+
+    Returns the matching category from `CATEGORY_LIST`, or None if no keyword
+    matches. Used as a fallback when the LLM skips the category record step.
+    """
+    if not name:
+        return None
+    lowered = name.lower()
+    for keywords, category in _CATEGORY_KEYWORDS:
+        for kw in keywords:
+            if kw in lowered:
+                return category
+    return None
+
+
 # Enrichment hints by category — tells the agent which questions matter most
 CATEGORY_ENRICHMENT_HINTS: dict[str, list[str]] = {
     "Laptops": [

@@ -28,6 +28,7 @@ from packages.agents.intake.tools import (
     CATEGORY_LIST,
     TOOL_DEFINITIONS,
     execute_tool,
+    infer_category,
 )
 from packages.config import settings
 from packages.db.models import Item, ItemCondition, ItemImage, ItemStatus
@@ -167,12 +168,25 @@ async def _plan_next_step(
     # Check for missing fields
     missing = _missing_fields(item)
     if missing:
+        # The LLM occasionally skips the category record step (Azure GPT-5
+        # doesn't always honour the "infer category" instruction). Before
+        # bouncing the canned question back at the seller, try to infer it
+        # from the item name ourselves.
+        if "category" in missing and item.name:
+            inferred = infer_category(item.name)
+            if inferred:
+                item.category = inferred
+                await session.flush()
+                missing = _missing_fields(item)
+
         # If only description/name missing, defer to LLM so it calls generate_listing
         if missing == ["description"]:
             return None, False, False
         if missing == ["name"]:
             return None, False, False
         if set(missing) == {"name", "description"}:
+            return None, False, False
+        if not missing:
             return None, False, False
 
         # Otherwise ask questions to fill in the missing fields
