@@ -314,6 +314,33 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "record_item_specific",
+            "description": (
+                "Record an eBay item-specific value the seller has supplied. Use ONLY "
+                "when the item is in `needs_specifics` state and the seller has just "
+                "answered a question about a required eBay field (e.g. 'Type', "
+                "'Connectivity', 'Colour', 'Model'). Do NOT use this for core fields "
+                "like brand or condition — those go through record_attribute."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The eBay item-specific name (e.g. 'Type').",
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The seller's answer.",
+                    },
+                },
+                "required": ["name", "value"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "mark_intake_complete",
             "description": (
                 "Mark intake as complete once you have: (1) recorded all attributes, "
@@ -493,6 +520,27 @@ async def execute_tool(
 
         await session.flush()
         return f"Saved {field} = {value!r}", item.id
+
+    if tool_name == "record_item_specific":
+        name = tool_input.get("name")
+        value = tool_input.get("value")
+        if not name or value is None:
+            return "Error: record_item_specific requires both 'name' and 'value'", item_id
+
+        item = await _get_or_create_item(seller_id, item_id, session)
+        # Persist the specific into attributes (used downstream by the publisher)
+        attrs = dict(item.attributes or {})
+        attrs[str(name)] = str(value)
+        item.attributes = attrs
+
+        # Pop the name off the still-needed list. Idempotent — repeated
+        # calls just no-op once the name is gone.
+        if item.required_specifics:
+            remaining = [n for n in item.required_specifics if n != name]
+            item.required_specifics = remaining or None
+
+        await session.flush()
+        return f"Saved item-specific {name} = {value!r}", item.id
 
     if tool_name == "generate_listing":
         raw_title = tool_input["raw_title"]
