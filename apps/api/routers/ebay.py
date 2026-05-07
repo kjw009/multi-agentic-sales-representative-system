@@ -18,6 +18,7 @@ from packages.db.session import get_session
 from packages.platform_adapters.ebay.oauth import (
     build_authorization_url,
     exchange_code,
+    fetch_user_id,
     token_expiry,
 )
 
@@ -146,6 +147,13 @@ async def ebay_callback(
     cred.refresh_token_enc = encrypt_token(refresh_token) if refresh_token else None
     cred.expires_at = expires_at
     cred.key_version = 1
+
+    # Map eBay's userId so inbound webhooks can resolve back to seller_id.
+    # If the lookup fails we still save the credential — webhooks will log
+    # unresolved publishers until a future request refreshes this.
+    external_user_id = await fetch_user_id(access_token)
+    if external_user_id:
+        cred.external_user_id = external_user_id
 
     # Commit the changes to the database
     await session.commit()

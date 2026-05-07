@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     ebay_marketplace_id: str = "EBAY_GB"
     ebay_verification_token: str = ""  # for Event Notification API endpoint validation
     ebay_webhook_endpoint: str = ""  # public URL where the webhook will be hosted
+    # When true, reject inbound notifications whose X-EBAY-SIGNATURE header
+    # does not validate against eBay's public key. Off by default so dev/test
+    # can replay sample payloads without signing them.
+    ebay_verify_webhook_signature: bool = False
     frontend_base_url: str = "http://localhost:3000"  # override in production
 
     # Browse API credentials — can point at production even while OAuth uses sandbox
