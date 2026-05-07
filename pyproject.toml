@@ -22,7 +22,8 @@ dependencies = [
   "psycopg[binary]>=3.2",
   "alembic>=1.14",
   "pgvector>=0.3",
-  # Task queue & message bus (SQS via boto3, already listed under Utilities)
+  # Task queue & message bus
+  "redis>=5.0",
   # AI
   "openai>=1.75",
   # Orchestration
