@@ -101,16 +101,7 @@ Follow this exact sequence:
 - If the seller says something like "looks good" or "that's fine" after you \
   present the generated listing, proceed to request_image.
 - If the seller provides all details upfront in one message, you can skip \
-  enrichment questions and go straight to generate_listing.
-
-═══ FILLING MISSING eBay SPECIFICS ═══
-If the conversation is in 'needs_specifics' mode (you'll see a system note \
-listing the missing fields), your ONLY job is to ask the seller for those \
-specifics one at a time and record each answer with record_item_specific. \
-Do NOT call record_attribute for these — they are platform-specific values, \
-not core item fields. Do NOT call generate_listing or mark_intake_complete \
-in this mode; the system handles re-publishing automatically once the list \
-is empty.\
+  enrichment questions and go straight to generate_listing.\
 """
 
 
@@ -174,31 +165,6 @@ async def _plan_next_step(
             False,
         )
 
-    # ── needs_specifics recovery loop ──────────────────────────────────────
-    # If the publisher parked this item awaiting more info, drive the
-    # conversation toward filling those fields and trigger a re-publish
-    # once the list is empty. This precedes the standard missing-field
-    # check because needs_specifics implies the basics are already in place.
-    if item.status == ItemStatus.needs_specifics:
-        if item.required_specifics:
-            next_field = item.required_specifics[0]
-            return (
-                f"To finish publishing on eBay I just need the {next_field}"
-                " of your item — could you tell me?",
-                False,
-                False,
-            )
-        # All specifics gathered — nothing left in the list. Drop back to
-        # `priced` so the publisher accepts it and queue a publish-only run.
-        item.status = ItemStatus.priced
-        await session.flush()
-        await _enqueue_publish_only(item.seller_id, item.id)
-        return (
-            "Thanks — I have everything I need. Re-publishing your listing now.",
-            False,
-            True,
-        )
-
     # Check for missing fields
     missing = _missing_fields(item)
     if missing:
@@ -254,34 +220,6 @@ async def _plan_next_step(
     return "Great — I have everything I need to prepare your listing!", False, True
 
 
-# Holds references to in-flight dev-mode publish_only tasks so the event
-# loop's GC doesn't collect them before they finish.
-_BACKGROUND_TASKS: set[Any] = set()
-
-
-async def _enqueue_publish_only(seller_id: uuid.UUID, item_id: uuid.UUID) -> None:
-    """Trigger a publisher-only re-run after intake clears required_specifics.
-
-    Mirrors the SQS-or-BackgroundTasks pattern used in the intake router so
-    local dev keeps working without SQS configured.
-    """
-    from packages.config import settings
-
-    if settings.sqs_queue_url:
-        from packages.bus.sqs import enqueue
-
-        enqueue("publish_only", seller_id=str(seller_id), item_id=str(item_id))
-        return
-
-    import asyncio
-
-    from packages.agents.pipeline import run_publisher_only
-
-    task = asyncio.create_task(run_publisher_only(seller_id, item_id))
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
-
-
 @traceable(name="intake_node", run_type="chain")
 async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, Any]:
     """
@@ -305,14 +243,6 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
         item = await session.scalar(select(Item).where(Item.id == item_id))
         if item and item.category:
             system_content += _enrichment_context(item.category)
-        if item and item.status == ItemStatus.needs_specifics and item.required_specifics:
-            specifics = ", ".join(item.required_specifics)
-            system_content += (
-                f"\n\nNOTE: needs_specifics mode is active. "
-                f"Outstanding fields: {specifics}. "
-                "Ask the seller about exactly one of these per turn and record "
-                "the answer with record_item_specific."
-            )
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_content},
