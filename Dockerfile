@@ -14,7 +14,7 @@ COPY . .
 
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 
-RUN uv pip install --system -e ".[ml,nlp]"
+RUN uv pip install --system -e "."
 
 EXPOSE 8000
 
