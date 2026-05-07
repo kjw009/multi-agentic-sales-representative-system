@@ -54,7 +54,8 @@ Only ask the seller to confirm the category if it is genuinely ambiguous \
 
 ═══ BRAND & CONDITION INFERENCE ═══
 Also infer the brand from the item name when obvious (e.g. "Nike Air Max" → \
-brand = "Nike"). If the seller mentions condition clues like "barely used" or \
+brand = "Nike", Apple MacBook Air → brand = "Apple", Dyson V11 → brand = "Dyson", etc.). \
+If the seller mentions condition clues like "barely used" or \
 "has a scratch", infer the condition grade and record it.
 
 ═══ RECORDING ATTRIBUTES ═══
@@ -73,14 +74,16 @@ excellent listing. Questions should be relevant to the category:
 - General: cosmetic defects, included accessories, reason for selling?
 
 Ask ONE question at a time. Keep it conversational and friendly. Aim for \
-2-4 enrichment questions total — enough to write a strong listing, but not \
-so many that the seller gets frustrated.
+3-5  questions total to gather missing information and every enrinchment \
+information needed to make the AI generate the strongest listing title and \
+description — not too many questions and not too few.
 
 ═══ WORKFLOW ═══
 Follow this exact sequence:
 1. Seller describes their item → immediately record_attribute for every fact \
-   you can extract or infer (name, category, brand, condition, etc.).
-2. Ask 2-4 enrichment questions to gather key specs and details.
+   you can extract or infer including any enrichment information \
+   (name, category, brand, condition, etc.).
+2. Ask 3-5  questions to gather all key specs, attributes and details.
 3. Once you have enough detail, call generate_listing to produce an \
    optimised title and description. This saves them to the database.
 4. Present the generated title and description to the seller. Ask if they'd \
@@ -114,8 +117,10 @@ def _enrichment_context(category: str) -> str:
 
 
 class IntakeState(TypedDict):
-    """State dictionary for the intake LangGraph."""
-
+    """
+    The 'Memory' of the conversation. 
+    LangGraph persists this between messages so the AI doesn't 'forget' the item_id.
+    """
     seller_id: str
     item_id: str | None
     messages: list[dict[str, Any]]
@@ -125,6 +130,9 @@ class IntakeState(TypedDict):
 
 
 def _missing_fields(item: Item) -> list[str]:
+    """
+    Internal check: Does the database have the bare minimum info yet?
+    """
     missing: list[str] = []
     if not (item.name or "").strip():
         missing.append("name")
@@ -140,6 +148,10 @@ def _missing_fields(item: Item) -> list[str]:
 async def _plan_next_step(
     session: AsyncSession, item_id: uuid.UUID | None
 ) -> tuple[str | None, bool, bool]:
+    """
+    The 'Guardrail' function. 
+    Regardless of what the AI 'thinks', this checks the actual DB to see what's next.
+    """
     if item_id is None:
         return None, False, False
 
@@ -151,6 +163,7 @@ async def _plan_next_step(
             False,
         )
 
+    # Check for missing fields
     missing = _missing_fields(item)
     if missing:
         # If only description/name missing, defer to LLM so it calls generate_listing
@@ -161,6 +174,7 @@ async def _plan_next_step(
         if set(missing) == {"name", "description"}:
             return None, False, False
 
+        # Otherwise ask questions to fill in the missing fields
         prompts = {
             "name": "What item are you looking to sell?",
             "category": "What category does this item belong to? For example: Laptops, Trainers, Watches.",
@@ -198,6 +212,11 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
 
     Processes the conversation state by calling OpenAI with tools, executing tool calls,
     and updating the state until a terminal response is reached or max iterations hit.
+
+    The main execution loop.
+    1. Feeds context to the LLM.
+    2. Executes any tools the LLM chooses to 'call'.
+    3. Returns the final reply.
     """
     session = config["configurable"]["session"]
     seller_id = uuid.UUID(state["seller_id"])
@@ -222,7 +241,8 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
     reply = ""
     complete = False
     needs_image = False
-
+ 
+    # Main loop - ask the LLM, execute tools, repeat up to 10 times
     for _ in range(10):
         try:
             response = await client.chat.completions.create(  # type: ignore[call-overload]
@@ -245,6 +265,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
             reply = msg.content or "How can I help you today?"
             break
 
+        # Add the assistant's response to the conversation history
         messages.append(
             {
                 "role": "assistant",
@@ -282,7 +303,8 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
                 )
                 terminal_reply = reply
                 break
-
+ 
+            # Execute the tool and handle any errors
             try:
                 result_text, item_id = await execute_tool(
                     tool_name=tc.function.name,
@@ -327,7 +349,8 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
         if terminal_reply is not None:
             reply = terminal_reply
             break
-
+ 
+        # Ask the LLM what to do next by checking for missing fields
         planned_reply, planned_needs_image, planned_complete = await _plan_next_step(
             session, item_id
         )
@@ -350,7 +373,8 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
         "needs_image": needs_image,
     }
 
-
+# This is the main graph builder which defines the entry point and the end point
+# and adds the nodes to the graph - there is only one node in this case.
 _builder: StateGraph[IntakeState] = StateGraph(IntakeState)
 _builder.add_node("intake", intake_node)
 _builder.set_entry_point("intake")
