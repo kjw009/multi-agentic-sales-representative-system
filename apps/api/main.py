@@ -1,8 +1,18 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.routers import auth, ebay, health, images, intake, internal, pages, webhooks
 from packages.config import configure_tracing, settings
+
+# Surface app loggers (pricing/publisher/intake) at INFO so Round/Browse/etc.
+# messages are visible in `docker compose logs`. uvicorn configures its own
+# loggers separately, so this only affects our package logs.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 # Activate LangSmith tracing before any LangGraph graph is compiled
 configure_tracing()
