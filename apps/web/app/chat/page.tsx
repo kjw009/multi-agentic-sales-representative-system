@@ -331,6 +331,21 @@ function ChatPageInner() {
         const ls = await api.getListingStatus(id);
         if (ls) {
           setListingStatus(ls);
+          // When the publisher parks the item awaiting more info, surface
+          // the question in the chat so the seller has something to reply
+          // to. Their next message hits /agent/intake/message, which routes
+          // through `_plan_next_step` and continues the flow naturally.
+          if (ls.status === "needs_specifics") {
+            const next = ls.required_specifics?.[0];
+            if (next) {
+              const promptText = `To finish publishing on eBay I just need the ${next} of your item — could you tell me?`;
+              setMessages((prev) =>
+                prev.length > 0 && prev[prev.length - 1].content === promptText
+                  ? prev
+                  : [...prev, { role: "assistant", content: promptText }]
+              );
+            }
+          }
           if (
             ls.status === "live" ||
             ls.status === "error" ||
