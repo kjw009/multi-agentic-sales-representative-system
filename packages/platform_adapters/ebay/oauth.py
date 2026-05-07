@@ -16,6 +16,7 @@ SCOPES = [
     # "https://api.ebay.com/oauth/api_scope/sell.messaging",
 ]
 
+# URLs for Sandbox (Test) vs Production
 _SANDBOX_AUTH_URL = "https://auth.sandbox.ebay.com/oauth2/authorize"
 _SANDBOX_TOKEN_URL = "https://api.sandbox.ebay.com/identity/v1/oauth2/token"
 _PROD_AUTH_URL = "https://auth.ebay.com/oauth2/authorize"
@@ -23,19 +24,29 @@ _PROD_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 
 
 def _auth_url() -> str:
+    """Toggles the URL based on whether we are in testing or live mode."""
     return _SANDBOX_AUTH_URL if settings.ebay_env == "sandbox" else _PROD_AUTH_URL
 
 
 def _token_url() -> str:
+    """Toggles the URL for the token exchange endpoint."""
     return _SANDBOX_TOKEN_URL if settings.ebay_env == "sandbox" else _PROD_TOKEN_URL
 
 
 def _basic_auth() -> str:
+    """Encodes API credentials into the Base64 format eBay requires."""
     creds = f"{settings.ebay_client_id}:{settings.ebay_client_secret}"
     return base64.b64encode(creds.encode()).decode()
 
 
 def build_authorization_url(state: str) -> str:
+    """
+    The 'state' is a random string used to prevent CSRF attacks.
+
+    Returns the full URL that the seller must visit in their browser to start
+    the OAuth dance. This includes the necessary client_id, scope, and redirect_uri
+    so that eBay knows who is asking for access and what permissions are being requested.
+    """
     params = {
         "client_id": settings.ebay_client_id,
         "response_type": "code",
@@ -47,7 +58,9 @@ def build_authorization_url(state: str) -> str:
 
 
 async def exchange_code(code: str) -> dict[str, Any]:
-    """Exchange authorization code for tokens. Returns the raw eBay token response dict."""
+    """Swap the temporary code for actual tokens.
+    Returns: {access_token, expires_in, refresh_token, ...}
+    """
     async with httpx.AsyncClient() as client:
         r = await client.post(
             _token_url(),
@@ -66,7 +79,11 @@ async def exchange_code(code: str) -> dict[str, Any]:
 
 
 async def refresh_access_token(refresh_token: str) -> dict[str, Any]:
-    """Use a refresh token to get a new access token. Returns the raw eBay token response dict."""
+    """Get a fresh access token without user interaction.
+    This happens in the background whenever the access_token expires.
+
+    Returns: {access_token, expires_in, refresh_token, ...}
+    """
     async with httpx.AsyncClient() as client:
         r = await client.post(
             _token_url(),
@@ -85,4 +102,5 @@ async def refresh_access_token(refresh_token: str) -> dict[str, Any]:
 
 
 def token_expiry(expires_in_seconds: int) -> datetime:
+    """Calculates the absolute UTC time when a token will become invalid."""
     return datetime.now(UTC) + timedelta(seconds=expires_in_seconds)

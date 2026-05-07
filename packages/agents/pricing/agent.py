@@ -121,10 +121,10 @@ def _get_sentence_model():
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_FLOOR_RATIO = 0.70
-_MODEL_WEIGHT = 0.60  # model 60%, live comparable median 40%
-_TARGET_COMPARABLES = 20
-_MAX_SEARCH_ROUNDS = 2
+_DEFAULT_FLOOR_RATIO = 0.70  # Default minimum price is 70% of recommended
+_MODEL_WEIGHT = 0.60  # ML Model contributes 60% to final price
+_TARGET_COMPARABLES = 20  # Try to find 20 matching items on eBay
+_MAX_SEARCH_ROUNDS = 2  # How many times to re-search if results are poor   
 
 # ---------------------------------------------------------------------------
 # Condition → v3 ordinal  (mirrors notebook CONDITION_ORDINAL)
@@ -150,6 +150,7 @@ def _condition_ord(item: Item) -> int:
 
 @traceable(name="pricing_model_predict", run_type="tool")
 def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
+    # Calculate the predicted price olely on the historical ML model
     if _MODEL is None or _META is None or _PCA_TITLE is None or _PCA_DESC is None:
         return None
 
@@ -219,6 +220,7 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
             **{f"desc_pc{i + 1}": float(v) for i, v in enumerate(desc_pca)},
         }
 
+        # Run prediction
         x = np.array([[feat[col] for col in feature_cols]], dtype=float)
         log_pred = float(_MODEL.predict(x)[0])  # type: ignore[attr-defined]
         pred = float(np.expm1(log_pred))
@@ -277,6 +279,7 @@ def _build_fallback_query(item: Item, round_num: int) -> str:
         top = [w for w, _ in word_counts.most_common(6)]
         if brand and brand.lower() not in top:
             top = [brand, *top]
+        # 7 keywords + category to be used as search query  
         return " ".join(top[:7])
 
     # Round 3+: bare category + brand
@@ -427,12 +430,15 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
             min_acceptable_price=0.0,
         )
 
+    # Get real-time eBay comparable data
     validated = await _collect_comparables(row, target=_TARGET_COMPARABLES)
     prices = [c.price for c in validated if c.price > 0]
     comparable_median = statistics.median(prices) if prices else None
 
+    # Get price prediction from historical ML model
     model_pred = _model_predict(row, prices)
 
+    # Weighted average of model prediction and comparable median
     if comparable_median is not None and model_pred is not None:
         recommended = (1 - _MODEL_WEIGHT) * comparable_median + _MODEL_WEIGHT * model_pred
     elif comparable_median is not None:

@@ -3,9 +3,6 @@ Listing creation pipeline: pricing_node → publisher_node.
 
 This graph is triggered once per item, after Agent 1 calls mark_intake_complete.
 It is intentionally separate from the per-message intake graph.
-
-Phase 2 replaces the pricing_node stub with real ML inference.
-Phase 3 replaces the publisher_node stub with the eBay Sell API.
 """
 
 import uuid
@@ -20,7 +17,7 @@ from packages.agents.pricing.agent import run as run_pricing
 from packages.agents.publisher.agent import run as run_publisher
 from packages.db.models import Item, ItemStatus
 
-
+# --- The "Envelope" that carries data between nodes ---
 class PipelineState(TypedDict):
     seller_id: str
     item_id: str
@@ -33,11 +30,13 @@ class PipelineState(TypedDict):
 
 @traceable(name="pipeline_pricing_node", run_type="chain")
 async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
+    # Node 1: Pricing - This node is responsible for pricing the item and saving the price to the database.
     session = config["configurable"]["session"]
     item_id = uuid.UUID(state["item_id"])
     seller_id = uuid.UUID(state["seller_id"])
 
     try:
+        # Call the pricing agent
         result = await run_pricing(item_id=item_id, seller_id=seller_id, session=session)
 
         # Persist pricing result onto the Item row so the UI can poll for it
@@ -64,8 +63,9 @@ async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict[str
 
 @traceable(name="pipeline_publisher_node", run_type="chain")
 async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
+    # Node 2: Publisher - This node is responsible for publishing the item to eBay.
     if state.get("error"):
-        return {}
+        return {} # Stop the pipeline if there was an error in the pricing node
 
     session = config["configurable"]["session"]
     item_id = uuid.UUID(state["item_id"])
@@ -85,6 +85,7 @@ async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[s
     )
 
     try:
+        # Call the publisher agent
         result = await run_publisher(
             item_id=item_id, seller_id=seller_id, pricing=pricing, session=session
         )
@@ -93,6 +94,7 @@ async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[s
         return {"error": f"Publishing failed: {exc}"}
 
 
+# --- Graph Assembly ---
 _builder: StateGraph[PipelineState] = StateGraph(PipelineState)
 _builder.add_node("pricing", pricing_node)
 _builder.add_node("publisher", publisher_node)
@@ -104,7 +106,12 @@ pipeline = _builder.compile()
 
 @traceable(name="listing_pipeline", run_type="chain")
 async def run_pipeline(seller_id: uuid.UUID, item_id: uuid.UUID) -> None:
-    """Entry point called after intake completes. Creates its own DB session."""
+    """
+    Background Task Entrypoint.
+    This is called by the main app as a fire-and-forget background task.
+
+    Entry point called after intake completes. Creates its own DB session.
+    """
     from packages.db.session import SessionLocal
 
     async with SessionLocal() as session:
