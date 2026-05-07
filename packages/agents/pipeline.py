@@ -131,3 +131,34 @@ async def run_pipeline(seller_id: uuid.UUID, item_id: uuid.UUID) -> None:
                 "run_name": f"listing_pipeline_{item_id}",
             },
         )
+
+
+@traceable(name="publish_only", run_type="chain")
+async def run_publisher_only(seller_id: uuid.UUID, item_id: uuid.UUID) -> None:
+    """Re-run the publisher without re-pricing.
+
+    Triggered after the intake agent clears `item.required_specifics` —
+    pricing already ran on the original pipeline pass, so we don't redo
+    it (saves an LLM round-trip on the comparable validator and avoids
+    flapping the recommended price).
+    """
+    from packages.db.session import SessionLocal
+    from packages.schemas.agents import PricingResult
+
+    async with SessionLocal() as session:
+        item = await session.scalar(select(Item).where(Item.id == item_id))
+        if item is None:
+            return
+
+        pricing = PricingResult(
+            item_id=item_id,
+            recommended_price=float(item.recommended_price or 0),
+            confidence_score=float(item.confidence_score or 0),
+            min_acceptable_price=float(item.min_acceptable_price or 0),
+        )
+        await run_publisher(
+            item_id=item_id,
+            seller_id=seller_id,
+            pricing=pricing,
+            session=session,
+        )
