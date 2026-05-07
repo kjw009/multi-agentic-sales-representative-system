@@ -16,11 +16,14 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.agents.comms.agent import run as run_comms_agent
+from packages.agents.nlp.pipeline import NLPResult, analyse
 from packages.db.models import (
     BuyerMessage,
     Conversation,
     Listing,
     MessageDirection,
+    NLPAnnotation,
     Platform,
 )
 from packages.db.session import SessionLocal
@@ -94,24 +97,30 @@ async def _upsert_conversation(
     buyer_handle: str,
     listing_id: uuid.UUID | None,
 ) -> Conversation:
-    existing = await session.scalar(
+    """Find-or-create a conversation by (seller_id, buyer_handle).
+
+    Uses INSERT ... ON CONFLICT against the uq_conversations_seller_buyer
+    constraint so concurrent webhooks for the same buyer can't race-create
+    duplicate rows. If the row already existed, we still upgrade its
+    listing_id when we now know one.
+    """
+    insert_stmt = (
+        pg_insert(Conversation)
+        .values(seller_id=seller_id, buyer_handle=buyer_handle, listing_id=listing_id)
+        .on_conflict_do_nothing(constraint="uq_conversations_seller_buyer")
+    )
+    await session.execute(insert_stmt)
+
+    conv = await session.scalar(
         select(Conversation).where(
             Conversation.seller_id == seller_id,
             Conversation.buyer_handle == buyer_handle,
         )
     )
-    if existing is not None:
-        if existing.listing_id is None and listing_id is not None:
-            existing.listing_id = listing_id
-        return existing
+    assert conv is not None  # we just inserted-or-found it
 
-    conv = Conversation(
-        seller_id=seller_id,
-        buyer_handle=buyer_handle,
-        listing_id=listing_id,
-    )
-    session.add(conv)
-    await session.flush()
+    if conv.listing_id is None and listing_id is not None:
+        conv.listing_id = listing_id
     return conv
 
 
@@ -142,8 +151,8 @@ async def handle_buyer_message(payload: dict[str, Any], seller_id: uuid.UUID) ->
             .on_conflict_do_nothing(index_elements=["message_id"])
             .returning(BuyerMessage.id)
         )
-        result = await session.execute(insert_stmt)
-        new_id = result.scalar_one_or_none()
+        insert_result = await session.execute(insert_stmt)
+        new_id = insert_result.scalar_one_or_none()
 
         if new_id is None:
             logger.info(
@@ -153,14 +162,47 @@ async def handle_buyer_message(payload: dict[str, Any], seller_id: uuid.UUID) ->
             await session.rollback()
             return
 
+        # Don't commit yet — annotation + Agent 4 run in the same transaction
+        # so a crash mid-pipeline rolls back to a consistent "message persisted
+        # but unanalysed" state we can re-process.
+
+        annotation = analyse(fields["raw_text"])
+        await _persist_annotation(session, new_id, annotation)
+
+        comms_result = await run_comms_agent(
+            message_id=new_id,
+            listing_id=listing_id,
+            seller_id=seller_id,
+            raw_text=fields["raw_text"],
+            annotation=annotation,
+            session=session,
+        )
+
         await session.commit()
         logger.info(
-            "Persisted buyer message id=%s seller=%s buyer=%s listing=%s",
+            "Processed buyer message id=%s seller=%s buyer=%s listing=%s intent=%s action=%s",
             new_id,
             seller_id,
             fields["buyer_handle"],
             listing_id,
+            annotation.intent.value,
+            comms_result.action,
         )
 
-        # TODO(phase-4-batch-2): run NLP pipeline → write nlp_annotations row,
-        # then invoke Agent 4 with the persisted message + annotation.
+
+async def _persist_annotation(
+    session: AsyncSession, message_id: uuid.UUID, annotation: NLPResult
+) -> None:
+    session.add(
+        NLPAnnotation(
+            message_id=message_id,
+            intent=annotation.intent,
+            intent_confidence=annotation.intent_confidence,
+            sentiment=annotation.sentiment,
+            sentiment_confidence=annotation.sentiment_confidence,
+            extracted_offer_price=annotation.extracted_offer_price,
+            entities=annotation.entities or None,
+            model_version=annotation.model_version,
+        )
+    )
+    await session.flush()

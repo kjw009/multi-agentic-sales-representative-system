@@ -429,6 +429,13 @@ class Listing(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
 
+    # One conversation per (seller, buyer) — a buyer can talk to a seller about
+    # multiple items, but always inside the same thread. listing_id is set
+    # when the conversation is anchored to a specific listing.
+    __table_args__ = (
+        UniqueConstraint("seller_id", "buyer_handle", name="uq_conversations_seller_buyer"),
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     # Context
