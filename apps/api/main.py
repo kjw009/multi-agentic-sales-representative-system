@@ -12,7 +12,10 @@ from packages.config import configure_tracing, settings
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
 )
+# Belt-and-braces: uvicorn may have set the root level after basicConfig.
+logging.getLogger("packages").setLevel(logging.INFO)
 
 # Activate LangSmith tracing before any LangGraph graph is compiled
 configure_tracing()
