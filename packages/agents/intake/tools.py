@@ -33,6 +33,7 @@ CATEGORY_LIST = [
     "Tablets",
     "Desktop Computers",
     "Monitors",
+    "Computer Peripherals",
     "Trainers",
     "Shoes",
     "Clothing",
@@ -70,6 +71,10 @@ _CATEGORY_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("ipad", "kindle", "tablet"), "Tablets"),
     (("iphone", "galaxy s", "pixel ", "smartphone", "phone"), "Phones"),
     (("monitor", "display"), "Monitors"),
+    (
+        ("mouse", "mice", "keyboard", "headset", "controller", "webcam", "mousepad"),
+        "Computer Peripherals",
+    ),
     (("trainer", "sneaker", "running shoe"), "Trainers"),
     (("shoe", "boot", "loafer", "sandal"), "Shoes"),
     (("watch", "smartwatch"), "Watches"),
@@ -131,6 +136,14 @@ CATEGORY_ENRICHMENT_HINTS: dict[str, list[str]] = {
         "screen size",
         "cellular or Wi-Fi only",
         "accessories included",
+    ],
+    "Computer Peripherals": [
+        "brand",
+        "model",
+        "type (mouse / keyboard / headset / etc.)",
+        "wired or wireless",
+        "colour",
+        "accessories included (cable, dongle, box)",
     ],
     "Trainers": [
         "brand",
