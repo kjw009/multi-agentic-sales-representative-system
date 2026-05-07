@@ -74,10 +74,11 @@ export interface EbayStatusResponse {
 }
 
 export interface ListingStatus {
-  status: "publishing" | "live" | "ended" | "error";
+  status: "publishing" | "live" | "ended" | "error" | "needs_specifics";
   url: string | null;
   external_id: string | null;
   posted_price: number | null;
+  required_specifics?: string[];
 }
 
 export const api = {

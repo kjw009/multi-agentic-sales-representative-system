@@ -163,9 +163,28 @@ function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
         </div>
       ),
     },
+    needs_specifics: {
+      label: listing.required_specifics?.length
+        ? `eBay needs more info: ${listing.required_specifics.join(", ")}`
+        : "eBay needs more info",
+      color: "bg-blue-50 border-blue-200 text-blue-700",
+      icon: (
+        <div className="flex items-center gap-1.5">
+          <div className="h-2 w-2 rounded-full bg-blue-400" />
+          <span className="text-xs font-medium">Action required</span>
+        </div>
+      ),
+    },
   };
 
-  const config = statusConfig[listing.status];
+  // Fallback prevents the page from crashing if the API ever returns a
+  // status that isn't in the union (e.g. after a backend deploy that
+  // adds a new state before the frontend ships).
+  const config = statusConfig[listing.status] ?? {
+    label: `Unknown status: ${listing.status}`,
+    color: "bg-gray-50 border-gray-200 text-gray-500",
+    icon: <span className="text-xs font-medium">—</span>,
+  };
 
   return (
     <div className={`rounded-2xl border p-4 space-y-3 shadow-sm ${config.color}`}>
@@ -312,7 +331,12 @@ function ChatPageInner() {
         const ls = await api.getListingStatus(id);
         if (ls) {
           setListingStatus(ls);
-          if (ls.status === "live" || ls.status === "error" || ls.status === "ended") {
+          if (
+            ls.status === "live" ||
+            ls.status === "error" ||
+            ls.status === "ended" ||
+            ls.status === "needs_specifics"
+          ) {
             setListingPending(false);
             // If listing is live/error/ended and pricing is also done, stop polling
             if (!pricingPending) {
