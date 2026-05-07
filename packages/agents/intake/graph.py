@@ -37,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 _CATEGORIES_STR = ", ".join(CATEGORY_LIST)
 
+# Canned prompts emitted by `_plan_next_step` when a core field is missing.
+# Module-level so the direct-answer guard can recognise its own prior output
+# in the chat history and route the seller's reply to the right field.
+_CANNED_FIELD_PROMPTS: dict[str, str] = {
+    "name": "What item are you looking to sell?",
+    "category": "What category does this item belong to? For example: Laptops, Trainers, Watches.",
+    "condition": "What condition is the item in? Choose from: new, like new, good, fair, or poor.",
+}
+
 SYSTEM_PROMPT = f"""\
 You are an AI assistant helping sellers create optimised eBay listings for \
 second-hand items. Your goal is to gather enough detail to produce an accurate, \
@@ -50,6 +59,7 @@ context and record it using record_attribute. Common categories: {_CATEGORIES_ST
 - "MacBook Pro 2021" → category = "Laptops"
 - "Samsung Galaxy S24" → category = "Phones"
 - "Bose QuietComfort 45" → category = "Headphones"
+- "Logitech G302 Gaming Mouse" → category = "Computer Peripherals"
 Only ask the seller to confirm the category if it is genuinely ambiguous \
 (e.g. "I want to sell some electronics" — could be anything).
 
@@ -156,6 +166,55 @@ def _missing_fields(item: Item) -> list[str]:
     return missing
 
 
+async def _apply_direct_answer_guard(
+    session: AsyncSession,
+    item_id: uuid.UUID,
+    messages: list[dict[str, Any]],
+) -> None:
+    """Record a canned-question answer directly if the LLM is about to mis-route it.
+
+    Why: when `_plan_next_step` asks a canned field question (e.g.
+    "What category does this item belong to?"), the LLM sometimes
+    misinterprets the seller's short reply as a new item description and
+    overwrites `name` instead of recording `category`, looping the
+    conversation. This guard short-circuits that by recognising the
+    prior canned prompt verbatim and writing the reply to the right field
+    before the LLM runs.
+    """
+    if len(messages) < 2 or messages[-1].get("role") != "user":
+        return
+    reply = (messages[-1].get("content") or "").strip()
+    if not reply or len(reply) > 80:
+        return
+    last_assistant = next(
+        (m for m in reversed(messages[:-1]) if m.get("role") == "assistant"),
+        None,
+    )
+    if not last_assistant:
+        return
+    prev = (last_assistant.get("content") or "").strip()
+    field = next((f for f, p in _CANNED_FIELD_PROMPTS.items() if p == prev), None)
+    if field is None:
+        return
+
+    item = await session.scalar(select(Item).where(Item.id == item_id))
+    if item is None:
+        return
+
+    if field == "category" and not (item.category or "").strip():
+        item.category = reply.title()
+    elif field == "name" and not (item.name or "").strip():
+        item.name = reply
+    elif field == "condition":
+        try:
+            item.condition = ItemCondition(reply.lower().replace(" ", "_"))
+        except ValueError:
+            return
+    else:
+        return
+    await session.flush()
+
+
 async def _plan_next_step(
     session: AsyncSession, item_id: uuid.UUID | None
 ) -> tuple[str | None, bool, bool]:
@@ -223,15 +282,10 @@ async def _plan_next_step(
         if not missing:
             return None, False, False
 
-        # Otherwise ask questions to fill in the missing fields
-        prompts = {
-            "name": "What item are you looking to sell?",
-            "category": "What category does this item belong to? For example: Laptops, Trainers, Watches.",
-            "condition": "What condition is the item in? Choose from: new, like new, good, fair, or poor.",
-            "description": None,  # Never ask seller for description — we generate it
-        }
+        # Otherwise ask questions to fill in the missing fields. Description
+        # is intentionally absent — we generate it via the LLM, never ask.
         for field in missing:
-            prompt = prompts.get(field)
+            prompt = _CANNED_FIELD_PROMPTS.get(field)
             if prompt:
                 return prompt, False, False
         return None, False, False
@@ -298,6 +352,12 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
     session = config["configurable"]["session"]
     seller_id = uuid.UUID(state["seller_id"])
     item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
+
+    # Direct-answer guard: if the previous assistant message was a canned
+    # field question, record the seller's reply against that field before
+    # the LLM gets a chance to mis-route it.
+    if item_id:
+        await _apply_direct_answer_guard(session, item_id, state["messages"])
 
     # Build system message — include enrichment hints if we know the category
     system_content = SYSTEM_PROMPT
