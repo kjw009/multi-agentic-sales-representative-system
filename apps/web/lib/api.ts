@@ -1,4 +1,8 @@
-const BASE = "/api";
+// When NEXT_PUBLIC_API_URL is set (production / Vercel), call the backend
+// directly to avoid the Next.js rewrite proxy's upstream timeout.
+// When unset (local dev), fall back to the relative `/api` path which the
+// Next.js rewrite forwards to API_URL (defaulting to http://localhost:8000).
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 function token(): string | null {
   if (typeof window === "undefined") return null;
