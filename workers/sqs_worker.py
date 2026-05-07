@@ -50,14 +50,6 @@ def handle_run_pipeline(seller_id: str, item_id: str) -> None:
     asyncio.run(run_pipeline(uuid.UUID(seller_id), uuid.UUID(item_id)))
 
 
-@register("process_buyer_message")
-def handle_process_buyer_message(payload: dict[str, Any], seller_id: str) -> None:
-    """Persist + analyse an inbound eBay buyer message."""
-    from packages.agents.comms.handler import handle_buyer_message
-
-    asyncio.run(handle_buyer_message(payload, uuid.UUID(seller_id)))
-
-
 # ---------------------------------------------------------------------------
 # Worker loop
 # ---------------------------------------------------------------------------
