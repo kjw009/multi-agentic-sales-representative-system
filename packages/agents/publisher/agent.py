@@ -214,7 +214,14 @@ async def run(
         # Reactive recovery path: if eBay rejected for missing item-specifics,
         # park the item in needs_specifics and let the intake agent ask the
         # seller. Anything we can't parse stays a hard error.
-        missing = _parse_missing_specifics(str(exc))
+        exc_text = str(exc)
+        missing = _parse_missing_specifics(exc_text)
+        logger.info(
+            "[Agent 3 — Publisher] recovery probe item=%s missing=%r exc_text=%r",
+            item_id,
+            missing,
+            exc_text,
+        )
         if missing:
             item.required_specifics = missing
             item.status = ItemStatus.needs_specifics
