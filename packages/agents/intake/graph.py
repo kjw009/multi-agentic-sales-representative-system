@@ -118,7 +118,7 @@ def _enrichment_context(category: str) -> str:
 
 class IntakeState(TypedDict):
     """
-    The 'Memory' of the conversation. 
+    The 'Memory' of the conversation.
     LangGraph persists this between messages so the AI doesn't 'forget' the item_id.
     """
     seller_id: str
@@ -149,7 +149,7 @@ async def _plan_next_step(
     session: AsyncSession, item_id: uuid.UUID | None
 ) -> tuple[str | None, bool, bool]:
     """
-    The 'Guardrail' function. 
+    The 'Guardrail' function.
     Regardless of what the AI 'thinks', this checks the actual DB to see what's next.
     """
     if item_id is None:
@@ -241,7 +241,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
     reply = ""
     complete = False
     needs_image = False
- 
+
     # Main loop - ask the LLM, execute tools, repeat up to 10 times
     for _ in range(10):
         try:
@@ -303,7 +303,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
                 )
                 terminal_reply = reply
                 break
- 
+
             # Execute the tool and handle any errors
             try:
                 result_text, item_id = await execute_tool(
@@ -349,7 +349,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
         if terminal_reply is not None:
             reply = terminal_reply
             break
- 
+
         # Ask the LLM what to do next by checking for missing fields
         planned_reply, planned_needs_image, planned_complete = await _plan_next_step(
             session, item_id
