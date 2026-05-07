@@ -124,7 +124,7 @@ def _get_sentence_model():
 _DEFAULT_FLOOR_RATIO = 0.70  # Default minimum price is 70% of recommended
 _MODEL_WEIGHT = 0.60  # ML Model contributes 60% to final price
 _TARGET_COMPARABLES = 20  # Try to find 20 matching items on eBay
-_MAX_SEARCH_ROUNDS = 2  # How many times to re-search if results are poor
+_MAX_SEARCH_ROUNDS = 3  # Rounds 0-1 use condition filter; round 2 drops it as fallback
 
 # ---------------------------------------------------------------------------
 # Condition → v3 ordinal  (mirrors notebook CONDITION_ORDINAL)

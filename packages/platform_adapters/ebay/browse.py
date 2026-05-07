@@ -15,13 +15,19 @@ import httpx
 
 from packages.config import settings
 
-# Mapping of human-readable condition names to eBay condition IDs
+# Mapping of human-readable condition names to eBay condition IDs.
+# eBay's condition IDs vary in availability per category — the broader buckets
+# (1000=New, 3000=Used, 7000=For Parts) are universally accepted, while finer
+# grades (4000/5000/6000) are silently rejected in many categories and cause
+# Browse to return zero items. We collapse to the universal buckets so search
+# works across all categories. Fine-grained matching is left to the downstream
+# LLM relevance filter.
 _CONDITION_ID_MAP: dict[str, str] = {
     "new": "1000",
-    "like_new": "3000",
-    "good": "4000",
-    "fair": "5000",
-    "poor": "6000",
+    "like_new": "1500",
+    "good": "3000",
+    "fair": "3000",
+    "poor": "7000",
 }
 
 # Base URLs for eBay Browse API endpoints
