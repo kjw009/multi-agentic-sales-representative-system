@@ -50,14 +50,6 @@ def handle_run_pipeline(seller_id: str, item_id: str) -> None:
     asyncio.run(run_pipeline(uuid.UUID(seller_id), uuid.UUID(item_id)))
 
 
-@register("publish_only")
-def handle_publish_only(seller_id: str, item_id: str) -> None:
-    """Re-run the publisher only — used after intake fills missing specifics."""
-    from packages.agents.pipeline import run_publisher_only
-
-    asyncio.run(run_publisher_only(uuid.UUID(seller_id), uuid.UUID(item_id)))
-
-
 # ---------------------------------------------------------------------------
 # Worker loop
 # ---------------------------------------------------------------------------

@@ -17,7 +17,6 @@ On eBay 4xx/5xx errors, sets Item.status = 'error' and records the failure.
 """
 
 import logging
-import re
 import uuid
 from datetime import UTC, datetime
 
@@ -41,29 +40,6 @@ from packages.platform_adapters.ebay.sell import (
 from packages.schemas.agents import ListingResult, PricingResult
 
 logger = logging.getLogger(__name__)
-
-
-# eBay's error string for missing item-specifics is consistent:
-#   "The item specific Type is missing. Add Type to this listing, ..."
-# We pull the names out so the intake agent can ask the seller for them.
-_MISSING_SPECIFIC_RE = re.compile(
-    r"item specific ([A-Za-z][A-Za-z0-9 &/\-]*?) is missing",
-    re.IGNORECASE,
-)
-
-
-def _parse_missing_specifics(err_text: str) -> list[str]:
-    """Extract eBay item-specific names from a Trading API error string.
-
-    Returns names in first-seen order with duplicates removed. An empty
-    list means the error wasn't a missing-specifics rejection.
-    """
-    seen: dict[str, None] = {}
-    for match in _MISSING_SPECIFIC_RE.finditer(err_text):
-        name = match.group(1).strip()
-        if name:
-            seen.setdefault(name, None)
-    return list(seen.keys())
 
 
 @traceable(name="publisher_agent", run_type="chain")
@@ -211,34 +187,9 @@ async def run(
         )
 
     except Exception as exc:
-        # Reactive recovery path: if eBay rejected for missing item-specifics,
-        # park the item in needs_specifics and let the intake agent ask the
-        # seller. Anything we can't parse stays a hard error.
-        missing = _parse_missing_specifics(str(exc))
-        if missing:
-            item.required_specifics = missing
-            item.status = ItemStatus.needs_specifics
-            # Keep the listing row open at "publishing" — we'll re-attempt
-            # once the seller has filled in the gaps. close_reason cleared
-            # so the UI doesn't show a stale failure message.
-            listing.status = ListingStatus.publishing
-            listing.close_reason = None
-            await session.commit()
-
-            logger.info(
-                "[Agent 3 — Publisher] item %s needs specifics: %s",
-                item_id,
-                missing,
-            )
-            return ListingResult(
-                item_id=item_id,
-                platform="ebay",
-                status="needs_specifics",
-            )
-
         logger.exception("[Agent 3 — Publisher] Failed to publish item %s: %s", item_id, exc)
 
-        # Hard error path
+        # Mark as error state
         listing.status = ListingStatus.error
         listing.close_reason = str(exc)[:255]
         item.status = ItemStatus.error

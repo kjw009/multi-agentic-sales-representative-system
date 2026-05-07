@@ -40,7 +40,6 @@ class ItemStatus(enum.StrEnum):
     intake_complete = "intake_complete"  # Ready for pricing
     priced = "priced"  # Price assigned
     publishing = "publishing"  # Being pushed to marketplace
-    needs_specifics = "needs_specifics"  # eBay rejected — seller must supply more item specifics
     live = "live"  # Visible for sale
     sold = "sold"  # Completed sale
     removed = "removed"  # Withdrawn or deleted
@@ -164,12 +163,6 @@ class Item(Base):
     price_low: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI lower bound
     price_high: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI upper bound
     pricing_comparables: Mapped[list[Any] | None] = mapped_column(JSONB)  # raw comparable listings
-
-    # eBay item-specific names that the seller still owes us before the
-    # listing can publish. Populated by the publisher when AddFixedPriceItem
-    # rejects with "item specific X is missing"; cleared one-by-one by
-    # intake as the seller answers each one.
-    required_specifics: Mapped[list[str] | None] = mapped_column(JSONB)
 
     # Workflow state machine
     status: Mapped[ItemStatus] = mapped_column(

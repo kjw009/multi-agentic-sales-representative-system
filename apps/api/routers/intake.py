@@ -127,24 +127,9 @@ async def get_listing_status(
     """
     Return the listing status for an item once publishing has started.
 
-    Returns null while the item is still being priced. When the publisher
-    has parked the item awaiting more eBay item-specifics from the seller,
-    surfaces `status="needs_specifics"` plus `required_specifics` so the
-    frontend can resume the chat.
+    Returns null while the item is still being priced.
+    Once the publisher agent runs, returns status + eBay URL.
     """
-    # Item-level state takes precedence over listing-level when the publisher
-    # parked it — the listing row stays at "publishing" while specifics are
-    # outstanding so we don't lose the in-flight publish attempt.
-    item = await session.scalar(select(Item).where(Item.id == item_id, Item.seller_id == seller.id))
-    if item is not None and item.status == "needs_specifics":
-        return {
-            "status": "needs_specifics",
-            "required_specifics": list(item.required_specifics or []),
-            "url": None,
-            "external_id": None,
-            "posted_price": (float(item.recommended_price) if item.recommended_price else None),
-        }
-
     listing = await session.scalar(
         select(Listing).where(
             Listing.item_id == item_id,
