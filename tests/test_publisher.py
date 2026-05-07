@@ -120,12 +120,16 @@ class TestEbayPayloadBuilder:
         assert product["brand"] == "Apple"
 
     def test_condition_mapping(self):
-        """Internal conditions map to valid eBay condition enums."""
+        """Internal conditions map to Sell Inventory API condition enum values.
+
+        Note: bare GOOD / LIKE_NEW are not valid in the Sell Inventory API
+        for most categories. We use USED_* aliases that work universally.
+        """
         for internal, expected in [
             (ItemCondition.new, "NEW"),
-            (ItemCondition.like_new, "LIKE_NEW"),
-            (ItemCondition.good, "GOOD"),
-            (ItemCondition.fair, "GOOD"),
+            (ItemCondition.like_new, "USED_EXCELLENT"),
+            (ItemCondition.good, "USED_GOOD"),
+            (ItemCondition.fair, "USED_ACCEPTABLE"),
             (ItemCondition.poor, "FOR_PARTS_OR_NOT_WORKING"),
         ]:
             item = _make_item(condition=internal)

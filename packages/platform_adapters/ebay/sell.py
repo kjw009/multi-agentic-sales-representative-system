@@ -41,12 +41,16 @@ _API_BASE = {
     "production": "https://api.ebay.com",
 }
 
-# Condition mapping: internal condition → eBay condition enum
+# Condition mapping: internal condition → eBay Sell Inventory API condition enum.
+# eBay's valid values are: NEW, NEW_OTHER, NEW_WITH_DEFECTS, CERTIFIED_REFURBISHED,
+# EXCELLENT_REFURBISHED, VERY_GOOD_REFURBISHED, GOOD_REFURBISHED, SELLER_REFURBISHED,
+# USED_EXCELLENT, USED_VERY_GOOD, USED_GOOD, USED_ACCEPTABLE, FOR_PARTS_OR_NOT_WORKING.
+# (LIKE_NEW exists only for media categories; USED_EXCELLENT is the universal alias.)
 _CONDITION_MAP = {
     "new": "NEW",
-    "like_new": "LIKE_NEW",
-    "good": "GOOD",
-    "fair": "GOOD",  # eBay doesn't have "fair"; map to GOOD
+    "like_new": "USED_EXCELLENT",
+    "good": "USED_GOOD",
+    "fair": "USED_ACCEPTABLE",
     "poor": "FOR_PARTS_OR_NOT_WORKING",
 }
 
@@ -222,7 +226,7 @@ async def create_inventory_item(
     Maps internal Item fields to eBay's InventoryItem schema and
     PUTs to /sell/inventory/v1/inventory_item/{sku}.
     """
-    condition = _CONDITION_MAP.get(str(item.condition), "GOOD")
+    condition = _CONDITION_MAP.get(str(item.condition), "USED_GOOD")
 
     # Build product payload
     product: dict[str, Any] = {
@@ -934,7 +938,7 @@ def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict[str,
     Exposed for unit testing — this is the same logic used by create_inventory_item
     but returns the payload dict without making an API call.
     """
-    condition = _CONDITION_MAP.get(str(item.condition), "GOOD")
+    condition = _CONDITION_MAP.get(str(item.condition), "USED_GOOD")
 
     product: dict[str, Any] = {
         "title": item.name[:80],
