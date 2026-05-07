@@ -72,8 +72,6 @@ class MessageDirection(enum.StrEnum):
 
 
 # --- MODELS ---
-
-
 class Seller(Base):
     __tablename__ = "sellers"
 

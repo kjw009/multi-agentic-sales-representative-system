@@ -15,6 +15,7 @@ from packages.db.session import get_session
 from packages.schemas.agents import ComparableListing, PricingResult
 from packages.schemas.intake import MessageRequest, MessageResponse
 
+# The route for the intake agent. This agent is responsible for gathering information about the item
 router = APIRouter(prefix="/agent/intake", tags=["intake"])
 
 
@@ -22,8 +23,8 @@ router = APIRouter(prefix="/agent/intake", tags=["intake"])
 async def intake_message(
     body: MessageRequest,
     background_tasks: BackgroundTasks,
-    seller: Seller = Depends(get_current_seller),  # noqa: B008
-    session: AsyncSession = Depends(get_session),  # noqa: B008
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
 ) -> MessageResponse:
     """
     Handle a message from the seller to the intake agent.
@@ -32,8 +33,10 @@ async def intake_message(
     and potentially triggers the pricing/publishing pipeline if intake is complete.
     Returns the agent's response with metadata.
     """
+    # Load the existing conversation history between this seller and this item
     history = await load_history(seller.id, body.item_id, session)
 
+    # Save the new user message to the database
     user_msg = ChatMessage(
         seller_id=seller.id,
         item_id=body.item_id,
@@ -41,8 +44,9 @@ async def intake_message(
         content=body.content,
     )
     session.add(user_msg)
-    await session.flush()
+    await session.flush()  # Ensure the message gets a database ID immediately
 
+    # Run the core intake agent logic
     reply_text, item_id, needs_image, complete = await run_agent(
         message=body.content,
         seller_id=seller.id,
@@ -51,6 +55,7 @@ async def intake_message(
         history=history,
     )
 
+    # Save the assistant's response to the database
     assistant_msg = ChatMessage(
         seller_id=seller.id,
         item_id=item_id,
@@ -58,16 +63,18 @@ async def intake_message(
         content=reply_text,
     )
     session.add(assistant_msg)
-    await session.commit()
+    await session.commit()  # Save both messages to the DB
 
+    # If the conversation is complete, start the downstream pipeline (pricing/publishing)
     if complete and item_id:
-        if settings.sqs_queue_url:
+        if settings.sqs_queue_url:  # Use SQS for async processing
             from packages.bus.sqs import enqueue
 
             enqueue("run_pipeline", seller_id=str(seller.id), item_id=str(item_id))
-        else:
+        else:  # Use background tasks for sync processing
             background_tasks.add_task(run_pipeline, seller.id, item_id)
 
+    # Return the agent's response
     return MessageResponse(
         content=reply_text,
         item_id=item_id,
@@ -87,15 +94,19 @@ async def get_pricing(
 
     Returns null (204) while pricing is still in progress.
     """
+    # Check that the item belongs to the authenticated seller
     item = await session.scalar(select(Item).where(Item.id == item_id, Item.seller_id == seller.id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
+    # If the pipeline hasn't finished yet, return null (204)
     if item.recommended_price is None:
         return None
 
+    # convert comparables from JSON array in DB to Pydantic model
     comparables = [ComparableListing(**c) for c in (item.pricing_comparables or [])]
 
+    # convert DB item to response model
     return PricingResult(
         item_id=item.id,
         recommended_price=float(item.recommended_price),

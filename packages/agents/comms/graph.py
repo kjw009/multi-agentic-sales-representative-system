@@ -32,6 +32,7 @@ class CommsState(TypedDict):
 async def comms_node(state: CommsState, config: RunnableConfig) -> dict[str, Any]:
     session = config["configurable"]["session"]
 
+    # Call the comms agent to process the message
     result = await run_agent(
         message_id=uuid.UUID(state["message_id"]),
         listing_id=uuid.UUID(state["listing_id"]),
@@ -46,6 +47,7 @@ async def comms_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
     }
 
 
+# Build the graph
 _builder: StateGraph[CommsState] = StateGraph(CommsState)
 _builder.add_node("comms", comms_node)
 _builder.set_entry_point("comms")
