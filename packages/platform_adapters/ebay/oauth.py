@@ -104,3 +104,28 @@ async def refresh_access_token(refresh_token: str) -> dict[str, Any]:
 def token_expiry(expires_in_seconds: int) -> datetime:
     """Calculates the absolute UTC time when a token will become invalid."""
     return datetime.now(UTC) + timedelta(seconds=expires_in_seconds)
+
+
+async def fetch_user_id(access_token: str) -> str | None:
+    """Look up the connected eBay account's userId via the Identity API.
+
+    Returns None on failure so the OAuth callback can still succeed — we'd
+    rather store the credential without a userId than block the seller's
+    onboarding. Webhooks will fall back to logging-and-acking unresolved
+    publishers until the userId is backfilled.
+    """
+    base = (
+        "https://apiz.sandbox.ebay.com"
+        if settings.ebay_env == "sandbox"
+        else "https://apiz.ebay.com"
+    )
+    url = f"{base}/commerce/identity/v1/user/"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(url, headers={"Authorization": f"Bearer {access_token}"})
+            r.raise_for_status()
+            data = cast(dict[str, Any], r.json())
+            user_id = data.get("userId") or data.get("username")
+            return str(user_id) if user_id else None
+    except (httpx.HTTPError, ValueError):
+        return None
