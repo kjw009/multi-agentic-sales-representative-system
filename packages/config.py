@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     ebay_webhook_endpoint: str = ""  # public URL where the webhook will be hosted
     frontend_base_url: str = "http://localhost:3000"  # override in production
 
+    # Comma-separated list of origins allowed to make CORS requests against
+    # the API. Set this to your Vercel domain (and localhost for dev) so the
+    # browser can call the API directly instead of going through the Next.js
+    # rewrite proxy (which has its own short timeout).
+    cors_allowed_origins: str = "http://localhost:3000"
+
     # Browse API credentials — can point at production even while OAuth uses sandbox
     # (sandbox Browse index is sparse; production gives real comparable data)
     ebay_browse_env: str = "production"

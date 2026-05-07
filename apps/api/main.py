@@ -1,7 +1,8 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.routers import auth, ebay, health, images, intake, internal, pages, webhooks
-from packages.config import configure_tracing
+from packages.config import configure_tracing, settings
 
 # Activate LangSmith tracing before any LangGraph graph is compiled
 configure_tracing()
@@ -9,6 +10,17 @@ configure_tracing()
 app = FastAPI(
     title="Multi-Agent Sales Assistant",
     version="0.0.1",
+)
+
+# CORS — let the Vercel frontend call the API directly so we don't rely on
+# the Next.js rewrite proxy (which has its own short upstream timeout).
+_allowed_origins = [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 # --- ROUTER REGISTRATION ---
 # This tells FastAPI: "When a request comes in for '/health', hand it off to the
