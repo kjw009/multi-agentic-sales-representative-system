@@ -58,8 +58,12 @@ def _parse_missing_specifics(err_text: str) -> list[str]:
     Returns names in first-seen order with duplicates removed. An empty
     list means the error wasn't a missing-specifics rejection.
     """
+    # eBay's error messages embed non-breaking spaces (U+00A0) between
+    # "<field>" and "is missing", which the regex's literal-space char
+    # class won't match. Collapse to ASCII whitespace before matching.
+    normalised = err_text.replace("\xa0", " ")
     seen: dict[str, None] = {}
-    for match in _MISSING_SPECIFIC_RE.finditer(err_text):
+    for match in _MISSING_SPECIFIC_RE.finditer(normalised):
         name = match.group(1).strip()
         if name:
             seen.setdefault(name, None)
@@ -214,14 +218,7 @@ async def run(
         # Reactive recovery path: if eBay rejected for missing item-specifics,
         # park the item in needs_specifics and let the intake agent ask the
         # seller. Anything we can't parse stays a hard error.
-        exc_text = str(exc)
-        missing = _parse_missing_specifics(exc_text)
-        logger.info(
-            "[Agent 3 — Publisher] recovery probe item=%s missing=%r exc_text=%r",
-            item_id,
-            missing,
-            exc_text,
-        )
+        missing = _parse_missing_specifics(str(exc))
         if missing:
             item.required_specifics = missing
             item.status = ItemStatus.needs_specifics
