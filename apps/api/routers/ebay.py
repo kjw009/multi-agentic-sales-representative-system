@@ -33,7 +33,8 @@ router = APIRouter(prefix="/auth/ebay", tags=["ebay-oauth"])
 _STATE_TTL = 600  # seconds — how long the state nonce lives in Redis
 
 # Frontend page the seller is redirected to after OAuth completes
-_FRONTEND_CHAT = "http://localhost:3000/chat"
+def _frontend_chat() -> str:
+    return f"{settings.frontend_base_url}/chat"
 
 
 def _redis() -> Any:
@@ -91,12 +92,12 @@ async def ebay_callback(
     # Handle declined consent (if user clicks "decline" on eBay).
     if declined or code is None:
         logger.info("eBay OAuth consent was declined")
-        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=declined", status_code=302)
+        return RedirectResponse(url=f"{_frontend_chat()}?ebay=declined", status_code=302)
 
     # Verify state exists in Redis for this request (CSRF protection).
     if state is None:
         logger.warning("eBay OAuth callback received without state parameter")
-        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
+        return RedirectResponse(url=f"{_frontend_chat()}?ebay=error", status_code=302)
 
     r = _redis()
     try:
@@ -107,7 +108,7 @@ async def ebay_callback(
 
     if stored is None:
         logger.warning("eBay OAuth callback received with invalid or expired state")
-        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
+        return RedirectResponse(url=f"{_frontend_chat()}?ebay=error", status_code=302)
 
     data = json.loads(stored)
     seller_id = uuid.UUID(data["seller_id"])
@@ -117,10 +118,10 @@ async def ebay_callback(
         token_data = await exchange_code(code)
     except httpx.HTTPStatusError as exc:
         logger.error("eBay token exchange failed: %s", exc.response.text)
-        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
+        return RedirectResponse(url=f"{_frontend_chat()}?ebay=error", status_code=302)
     except Exception:
         logger.exception("eBay token exchange failed unexpectedly")
-        return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=error", status_code=302)
+        return RedirectResponse(url=f"{_frontend_chat()}?ebay=error", status_code=302)
 
     # Extract token details
     access_token: str = token_data["access_token"]
@@ -151,7 +152,7 @@ async def ebay_callback(
     logger.info("eBay OAuth tokens saved for seller %s", seller_id)
 
     # Redirect back to the frontend chat page with success indicator
-    return RedirectResponse(url=f"{_FRONTEND_CHAT}?ebay=connected", status_code=302)
+    return RedirectResponse(url=f"{_frontend_chat()}?ebay=connected", status_code=302)
 
 
 @router.get("/status")

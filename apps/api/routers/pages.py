@@ -23,6 +23,7 @@ _STYLE = """
 """
 
 
+@router.get("/privacy", response_class=HTMLResponse)
 @router.get("/privacy-policy", response_class=HTMLResponse)
 async def privacy_policy() -> str:
     return f"""<!DOCTYPE html>

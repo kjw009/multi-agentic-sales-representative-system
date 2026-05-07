@@ -54,7 +54,7 @@ def build_authorization_url(state: str) -> str:
         "scope": " ".join(SCOPES),
         "state": state,
     }
-    return f"{_auth_url()}?{urllib.parse.urlencode(params)}"
+    return f"{_auth_url()}?{urllib.parse.urlencode(params, quote_via=urllib.parse.quote)}"
 
 
 async def exchange_code(code: str) -> dict[str, Any]:
