@@ -6,7 +6,7 @@ about items they want to sell, using a LangGraph-based state machine.
 """
 
 import uuid
-from typing import Any, cast
+from typing import Any
 
 from langsmith import traceable
 from sqlalchemy import select
@@ -68,19 +68,17 @@ async def run(
     all_messages = (history or []) + [{"role": "user", "content": message}]
 
     # Invoke the LangGraph with initial state
-    state = cast(
-        IntakeState,
-        await graph.ainvoke(
-            IntakeState(
-                seller_id=str(seller_id),
-                item_id=str(item_id) if item_id else None,
-                messages=all_messages,
-                reply="",
-                complete=False,
-                needs_image=False,
-            ),
-            config={"configurable": {"session": session}},
+    # graph.ainvoke() always returns a plain dict regardless of state type
+    state: dict[str, Any] = await graph.ainvoke(
+        IntakeState(
+            seller_id=str(seller_id),
+            item_id=str(item_id) if item_id else None,
+            messages=all_messages,
+            reply="",
+            complete=False,
+            needs_image=False,
         ),
+        config={"configurable": {"session": session}},
     )
 
     # Extract and convert the updated item ID
