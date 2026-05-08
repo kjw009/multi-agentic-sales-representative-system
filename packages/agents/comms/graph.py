@@ -9,16 +9,17 @@ Phase 4 replaces the comms_node stub with the full NLP + LLM pipeline.
 """
 
 import uuid
-from typing import Any, TypedDict
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
+from pydantic import BaseModel
 
 from packages.agents.comms.agent import run as run_agent
 
 
-class CommsState(TypedDict):
+class CommsState(BaseModel):
     seller_id: str
     listing_id: str
     message_id: str
@@ -34,10 +35,10 @@ async def comms_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
 
     # Call the comms agent to process the message
     result = await run_agent(
-        message_id=uuid.UUID(state["message_id"]),
-        listing_id=uuid.UUID(state["listing_id"]),
-        seller_id=uuid.UUID(state["seller_id"]),
-        raw_text=state["raw_text"],
+        message_id=uuid.UUID(state.message_id),
+        listing_id=uuid.UUID(state.listing_id),
+        seller_id=uuid.UUID(state.seller_id),
+        raw_text=state.raw_text,
         session=session,
     )
     return {
@@ -48,7 +49,7 @@ async def comms_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
 
 
 # Build the graph
-_builder: StateGraph[CommsState] = StateGraph(CommsState)
+_builder = StateGraph(CommsState)
 _builder.add_node("comms", comms_node)
 _builder.set_entry_point("comms")
 _builder.add_edge("comms", END)
@@ -66,14 +67,14 @@ async def run_comms(
 
     async with SessionLocal() as session:
         await comms_graph.ainvoke(
-            {
-                "seller_id": str(seller_id),
-                "listing_id": str(listing_id),
-                "message_id": str(message_id),
-                "raw_text": raw_text,
-                "draft_reply": "",
-                "action": "draft",
-                "requires_approval": True,
-            },
+            CommsState(
+                seller_id=str(seller_id),
+                listing_id=str(listing_id),
+                message_id=str(message_id),
+                raw_text=raw_text,
+                draft_reply="",
+                action="draft",
+                requires_approval=True,
+            ),
             config={"configurable": {"session": session}},
         )

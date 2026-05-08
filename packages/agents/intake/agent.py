@@ -6,13 +6,13 @@ about items they want to sell, using a LangGraph-based state machine.
 """
 
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.agents.intake.graph import graph
+from packages.agents.intake.graph import IntakeState, graph
 from packages.db.models import ChatMessage, ChatRole
 
 # Maximum number of recent messages to load for conversation history
@@ -68,18 +68,21 @@ async def run(
     all_messages = (history or []) + [{"role": "user", "content": message}]
 
     # Invoke the LangGraph with initial state
-    state = await graph.ainvoke(
-        {
-            "seller_id": str(seller_id),
-            "item_id": str(item_id) if item_id else None,
-            "messages": all_messages,
-            "reply": "",
-            "complete": False,
-            "needs_image": False,
-        },
-        config={"configurable": {"session": session}},
+    state = cast(
+        IntakeState,
+        await graph.ainvoke(
+            IntakeState(
+                seller_id=str(seller_id),
+                item_id=str(item_id) if item_id else None,
+                messages=all_messages,
+                reply="",
+                complete=False,
+                needs_image=False,
+            ),
+            config={"configurable": {"session": session}},
+        ),
     )
 
     # Extract and convert the updated item ID
-    updated_item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
-    return state["reply"], updated_item_id, state["needs_image"], state["complete"]
+    updated_item_id = uuid.UUID(state.item_id) if state.item_id else None
+    return state.reply, updated_item_id, state.needs_image, state.complete

@@ -14,12 +14,13 @@ v2 changes:
 import json
 import logging
 import uuid
-from typing import Any, TypedDict
+from typing import Any
 
 import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,7 +128,7 @@ def _enrichment_context(category: str) -> str:
     )
 
 
-class IntakeState(TypedDict):
+class IntakeState(BaseModel):
     """
     The 'Memory' of the conversation.
     LangGraph persists this between messages so the AI doesn't 'forget' the item_id.
@@ -295,9 +296,11 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
     2. Executes any tools the LLM chooses to 'call'.
     3. Returns the final reply.
     """
+    if isinstance(state, dict):
+        state = IntakeState(**state)
     session = config["configurable"]["session"]
-    seller_id = uuid.UUID(state["seller_id"])
-    item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
+    seller_id = uuid.UUID(state.seller_id)
+    item_id = uuid.UUID(state.item_id) if state.item_id else None
 
     # Build system message — include enrichment hints if we know the category
     system_content = SYSTEM_PROMPT
@@ -316,7 +319,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_content},
-        *state["messages"],
+        *state.messages,
     ]
 
     client = openai.AsyncOpenAI(
