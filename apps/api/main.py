@@ -1,10 +1,15 @@
 import logging
 
+# Import config and activate tracing BEFORE any langsmith/langgraph imports,
+# since langsmith reads env vars at the time graphs are compiled (module level).
+from packages.config import configure_tracing, settings
+
+configure_tracing()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.routers import auth, ebay, health, images, intake, internal, pages, webhooks
-from packages.config import configure_tracing, settings
 
 # Surface app loggers (pricing/publisher/intake) at INFO so Round/Browse/etc.
 # messages are visible in `docker compose logs`. uvicorn configures its own
@@ -16,9 +21,6 @@ logging.basicConfig(
 )
 # Belt-and-braces: uvicorn may have set the root level after basicConfig.
 logging.getLogger("packages").setLevel(logging.INFO)
-
-# Activate LangSmith tracing before any LangGraph graph is compiled
-configure_tracing()
 
 app = FastAPI(
     title="Multi-Agent Sales Assistant",
