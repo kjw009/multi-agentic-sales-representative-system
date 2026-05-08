@@ -194,7 +194,7 @@ async def infer_specifics(
     )
 
     schema = _build_schema(aspects)
-    response = await client.chat.completions.create(  # type: ignore[call-overload]
+    response = await client.chat.completions.create(
         model=chosen_model,
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
