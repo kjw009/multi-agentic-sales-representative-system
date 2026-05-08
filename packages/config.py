@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     model_agent1: str = "gpt-4.1-mini"
     model_agent2: str = "gpt-4.1-mini"  # relevance filter LLM for pricing comparables
+    model_agent3: str = "gpt-4.1-mini"  # eBay item-specifics inference for the publisher
     model_agent4: str = "gpt-4.1-mini"
 
     jwt_secret_key: str = ""

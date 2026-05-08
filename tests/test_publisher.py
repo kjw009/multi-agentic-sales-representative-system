@@ -144,15 +144,30 @@ class TestEbayPayloadBuilder:
         qty = payload["availability"]["shipToLocationAvailability"]["quantity"]
         assert qty == 1
 
-    def test_aspects_from_attributes(self):
-        """Item attributes are mapped to eBay product aspects."""
-        item = _make_item(attributes={"color": "Black", "storage": "256GB"})
-        payload = build_inventory_item_payload(item, ["https://img.jpg"])
+    def test_aspects_from_specifics(self):
+        """Specifics dict from the publisher's LLM step becomes eBay aspects."""
+        item = _make_item()
+        specifics = {"Colour": "Black", "Storage Capacity": "256 GB"}
+        payload = build_inventory_item_payload(item, ["https://img.jpg"], specifics=specifics)
 
         aspects = payload["product"]["aspects"]
-        assert "Color" in aspects
-        assert "Storage" in aspects
-        assert aspects["Color"] == ["Black"]
+        assert aspects["Colour"] == ["Black"]
+        assert aspects["Storage Capacity"] == ["256 GB"]
+
+    def test_aspects_split_multi_value(self):
+        """Comma-separated MULTI-cardinality values become a list."""
+        item = _make_item()
+        specifics = {"Connectivity": "Bluetooth, Wireless"}
+        payload = build_inventory_item_payload(item, ["https://img.jpg"], specifics=specifics)
+
+        assert payload["product"]["aspects"]["Connectivity"] == ["Bluetooth", "Wireless"]
+
+    def test_no_aspects_when_specifics_omitted(self):
+        """Without specifics, the payload has no aspects block."""
+        item = _make_item(attributes={"color": "Black"})  # attrs no longer feed aspects
+        payload = build_inventory_item_payload(item, ["https://img.jpg"])
+
+        assert "aspects" not in payload["product"]
 
     def test_title_truncation(self):
         """Titles longer than 80 chars are truncated."""
@@ -216,12 +231,20 @@ class TestPublisherAgent:
                 side_effect=lambda url, t: url,
             ),
             patch(
-                "packages.agents.publisher.agent.create_inventory_item",
-                return_value=None,
-            ),
-            patch(
                 "packages.agents.publisher.agent.get_suggested_category",
                 return_value="9355",
+            ),
+            patch(
+                "packages.agents.publisher.agent.get_required_specifics",
+                return_value=[],
+            ),
+            patch(
+                "packages.agents.publisher.agent.infer_specifics",
+                return_value={"Brand": "Sony", "Colour": "Black"},
+            ),
+            patch(
+                "packages.agents.publisher.agent.create_inventory_item",
+                return_value=None,
             ),
             patch(
                 "packages.agents.publisher.agent.ensure_business_policies",
@@ -279,6 +302,18 @@ class TestPublisherAgent:
             patch(
                 "packages.agents.publisher.agent.upload_image",
                 side_effect=lambda url, t: url,
+            ),
+            patch(
+                "packages.agents.publisher.agent.get_suggested_category",
+                return_value="9355",
+            ),
+            patch(
+                "packages.agents.publisher.agent.get_required_specifics",
+                return_value=[],
+            ),
+            patch(
+                "packages.agents.publisher.agent.infer_specifics",
+                return_value={},
             ),
             patch(
                 "packages.agents.publisher.agent.create_inventory_item",
