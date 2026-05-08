@@ -113,5 +113,6 @@ def configure_tracing() -> None:
         return
 
     os.environ.setdefault("LANGSMITH_TRACING", "true")
+    os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")  # LangGraph's callback tracer checks this
     os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
     os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
