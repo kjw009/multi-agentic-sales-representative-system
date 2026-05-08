@@ -6,10 +6,10 @@ from packages.config import configure_tracing, settings
 
 configure_tracing()
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from apps.api.routers import auth, ebay, health, images, intake, internal, pages, webhooks
+from apps.api.routers import auth, ebay, health, images, intake, internal, pages, webhooks  # noqa: E402
 
 # Surface app loggers (pricing/publisher/intake) at INFO so Round/Browse/etc.
 # messages are visible in `docker compose logs`. uvicorn configures its own
