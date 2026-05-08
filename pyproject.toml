@@ -85,6 +85,9 @@ extend-exclude = ["notebooks/*.ipynb"]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
 ignore = ["E501", "B008"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "packages", "workers"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

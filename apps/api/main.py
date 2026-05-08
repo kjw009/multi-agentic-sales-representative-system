@@ -6,7 +6,7 @@ from packages.config import configure_tracing, settings
 
 configure_tracing()
 
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI  # noqa: E402, I001
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from apps.api.routers import auth, ebay, health, images, intake, internal, pages, webhooks  # noqa: E402
