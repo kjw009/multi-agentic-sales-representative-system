@@ -4,16 +4,19 @@ Agent 3 — eBay Publisher.
 Takes an intake-complete Item + PricingResult and publishes it to eBay:
   1. Retrieves the seller's eBay OAuth token
   2. Prepares image URLs for eBay
-  3. Creates an eBay inventory item (SKU = item UUID)
-  4. Gets a suggested category from eBay's Taxonomy API
-  5. Ensures business policies exist (fulfillment, payment, return)
-  6. Creates an eBay offer with the recommended price
-  7. Publishes the offer → live eBay listing
-  8. Writes a Listing row to the DB
-  9. Updates Item.status to 'live'
-  10. Emits a 'listing.published' EventBridge event
+  3. Gets a suggested category from eBay's Taxonomy API
+  4. Infers eBay item-specifics for the category via LLM
+  5. Creates an eBay inventory item (SKU = item UUID) with those specifics
+  6. Ensures business policies exist (fulfillment, payment, return)
+  7. Creates an eBay offer with the recommended price
+  8. Publishes the offer → live eBay listing
+  9. Writes a Listing row to the DB
+  10. Updates Item.status to 'live'
+  11. Emits a 'listing.published' EventBridge event
 
 On eBay 4xx/5xx errors, sets Item.status = 'error' and records the failure.
+Missing required item-specifics rejections trigger the needs_specifics
+recovery loop that hands the gap back to Agent 1.
 """
 
 import logging
@@ -26,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from packages.agents.publisher.specifics import get_required_specifics, infer_specifics
 from packages.bus.events import emit
 from packages.db.models import Item, ItemStatus, Listing, ListingStatus, Platform
 from packages.platform_adapters.ebay.sell import (
@@ -140,21 +144,29 @@ async def run(
         if not image_urls:
             raise ValueError("No images available for eBay listing — at least one is required")
 
-        # Step 3: Create eBay inventory item
-        await create_inventory_item(sku, item, image_urls, token)
-
-        # Step 4: Get suggested category
+        # Step 3: Get suggested category (needed before specifics so we can ask
+        # eBay's Taxonomy API which fields the category requires).
         category_id = await get_suggested_category(item.name, token)
         if not category_id:
             # Fallback: use a generic category
             logger.warning("No category suggestion — using default 'Other' category")
             category_id = "99"  # eBay "Everything Else > Other"
 
-        # Step 5: Ensure business policies and merchant location
+        # Step 4: Infer eBay item specifics for this category via LLM.
+        # Anything the model can't determine is omitted; if eBay later rejects
+        # for missing required fields, the needs_specifics recovery loop below
+        # captures them and routes back to Agent 1.
+        aspects = await get_required_specifics(category_id)
+        specifics = await infer_specifics(item, aspects)
+
+        # Step 5: Create eBay inventory item with the inferred specifics
+        await create_inventory_item(sku, item, image_urls, token, specifics=specifics)
+
+        # Step 6: Ensure business policies and merchant location
         policies = await ensure_business_policies(token)
         location_key = await ensure_merchant_location(token)
 
-        # Step 6: Create offer
+        # Step 7: Create offer
         offer_result = await create_offer(
             sku=sku,
             price=pricing.recommended_price,
@@ -164,7 +176,7 @@ async def run(
             merchant_location_key=location_key,
         )
 
-        # Step 7: Publish offer (Trading API fallback handles Item.Country in sandbox)
+        # Step 8: Publish offer (Trading API fallback handles Item.Country in sandbox)
         publish_result = await publish_offer(
             offer_result.offer_id,
             token,
@@ -173,20 +185,21 @@ async def run(
             category_id=category_id,
             policies=policies,
             image_urls=image_urls,
+            specifics=specifics,
         )
 
-        # Step 8: Update listing record
+        # Step 9: Update listing record
         listing.external_id = publish_result.listing_id
         listing.url = publish_result.listing_url
         listing.status = ListingStatus.live
         listing.posted_at = datetime.now(UTC)
         listing.last_synced_at = datetime.now(UTC)
 
-        # Step 9: Update item status
+        # Step 10: Update item status
         item.status = ItemStatus.live
         await session.commit()
 
-        # Step 10: Emit event
+        # Step 11: Emit event
         emit(
             "listing.published",
             {

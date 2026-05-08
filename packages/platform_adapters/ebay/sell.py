@@ -12,7 +12,6 @@ Handles the full lifecycle of creating eBay listings:
 """
 
 import logging
-import re
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -220,11 +219,17 @@ async def create_inventory_item(
     item: Item,
     image_urls: list[str],
     token: SellerToken,
+    specifics: dict[str, str] | None = None,
 ) -> None:
     """Create or replace an eBay inventory item.
 
     Maps internal Item fields to eBay's InventoryItem schema and
     PUTs to /sell/inventory/v1/inventory_item/{sku}.
+
+    `specifics` is the dict of eBay aspect name → value produced by the
+    publisher's LLM inference step. Each value becomes one aspect on the
+    listing. When omitted the inventory item is published without any
+    aspects beyond the product brand.
     """
     condition = _CONDITION_MAP.get(str(item.condition), "USED_GOOD")
 
@@ -237,18 +242,16 @@ async def create_inventory_item(
     if item.brand:
         product["brand"] = item.brand
 
-    # Build aspects from attributes
     aspects: dict[str, list[str]] = {}
-    if item.brand:
-        aspects["Brand"] = [item.brand]
-    if item.category:
-        aspects["Type"] = [item.category]
-    if item.subcategory:
-        aspects["Sub-Type"] = [item.subcategory]
-    attrs = item.attributes or {}
-    for key, val in attrs.items():
-        if key != "brand" and val:
-            aspects[key.replace("_", " ").title()] = [str(val)]
+    for name, value in (specifics or {}).items():
+        if not value:
+            continue
+        # eBay accepts multi-value aspects via list; split on comma so a
+        # MULTI-cardinality field returned as "Bluetooth, Wireless" is
+        # encoded as two distinct values.
+        parts = [p.strip() for p in value.split(",") if p.strip()]
+        if parts:
+            aspects[name] = parts
     if aspects:
         product["aspects"] = aspects
 
@@ -637,163 +640,6 @@ class PublishResult:
     listing_url: str
 
 
-# Common colours we can detect in free text. Order matters when overlap is
-# possible — multi-word phrases first so "rose gold" wins over "gold".
-_COLOUR_PATTERNS = (
-    "rose gold",
-    "smoky pink",
-    "midnight black",
-    "matte black",
-    "matte white",
-    "space grey",
-    "space gray",
-    "silver",
-    "gold",
-    "black",
-    "white",
-    "red",
-    "blue",
-    "green",
-    "yellow",
-    "pink",
-    "purple",
-    "grey",
-    "gray",
-    "navy",
-    "beige",
-    "tan",
-    "brown",
-    "orange",
-    "ivory",
-    "cream",
-)
-
-
-def _detect_colour(text: str) -> str | None:
-    lowered = text.lower()
-    for colour in _COLOUR_PATTERNS:
-        # Word-boundary match so e.g. "tan" doesn't match inside "standard".
-        if re.search(rf"\b{re.escape(colour)}\b", lowered):
-            return colour.title()
-    return None
-
-
-def _detect_connectivity(text: str) -> str | None:
-    """Best-effort connectivity detection (Wireless / Bluetooth / Wired)."""
-    lowered = text.lower()
-    if "true wireless" in lowered:
-        return "True Wireless"
-    if "wireless" in lowered or "bluetooth" in lowered:
-        return "Wireless"
-    if "wired" in lowered or "3.5mm" in lowered:
-        return "Wired"
-    return None
-
-
-def _detect_model(item: Item) -> str | None:
-    """Model = item name with the brand stripped off, if present.
-
-    e.g. brand='Sony', name='Sony WH-1000XM5 Wireless Headphones'
-        → 'WH-1000XM5 Wireless Headphones'.
-    """
-    name = (item.name or "").strip()
-    if not name:
-        return None
-    brand = (item.brand or "").strip()
-    if brand and name.lower().startswith(brand.lower()):
-        candidate = name[len(brand) :].strip(" -:")
-        return candidate or None
-    return name
-
-
-# Category → safe default 'Type' value when we can't extract one from the
-# item text. eBay accepts free-text values for Type in most categories.
-_CATEGORY_TYPE_DEFAULT = {
-    "Headphones": "Other",
-    "Speakers": "Other",
-    "Laptops": "Notebook/Laptop",
-    "Phones": "Smartphone",
-    "Tablets": "Other",
-    "Watches": "Wristwatch",
-    "Cameras": "Other",
-    "Trainers": "Trainer",
-    "Shoes": "Other",
-    "Clothing": "Other",
-    "Headphones Type": "Other",
-}
-
-
-def _build_item_specifics(item: Item) -> dict[str, str]:
-    """Extract key item specifics from an Item's fields and name for Trading API.
-
-    eBay categories enforce a set of required ItemSpecifics (e.g. Headphones
-    requires Brand, Model, Type, Connectivity, Colour). Missing any of them
-    causes AddFixedPriceItem to 400. We extract what we can from the
-    name/description, then fill the rest with safe fallbacks so the listing
-    can publish even when the intake agent didn't capture every field.
-    """
-    specifics: dict[str, str] = {}
-    text = f"{item.name or ''} {item.description or ''}"
-
-    # ── Brand ───────────────────────────────────────────────────────────────
-    if item.brand:
-        specifics["Brand"] = item.brand
-    else:
-        specifics["Brand"] = "Unbranded"
-
-    # ── Model ───────────────────────────────────────────────────────────────
-    model = _detect_model(item)
-    if model:
-        specifics["Model"] = model[:65]  # eBay caps at 65 chars
-
-    # ── Colour / Connectivity / Type — required for several categories ──────
-    colour = _detect_colour(text)
-    specifics["Colour"] = colour or "Multicolour"
-
-    connectivity = _detect_connectivity(text)
-    if connectivity:
-        specifics["Connectivity"] = connectivity
-    elif (item.category or "").strip() in {"Headphones", "Speakers"}:
-        specifics["Connectivity"] = "Wireless"
-
-    type_default = _CATEGORY_TYPE_DEFAULT.get((item.category or "").strip())
-    if type_default:
-        specifics["Type"] = type_default
-
-    # ── Laptop / phone specs (legacy regex extraction) ──────────────────────
-    m = re.search(r'(\d+(?:\.\d+)?)\s*["\-]?(?:inch|in\b)', text, re.IGNORECASE)
-    if m:
-        specifics["Screen Size"] = f"{m.group(1)} in"
-
-    m = re.search(r"\b(M[1-4](?:\s*(?:Pro|Max|Ultra))?)\b", text, re.IGNORECASE)
-    if m:
-        specifics["Processor"] = f"Apple {m.group(1).strip()}"
-    else:
-        m = re.search(
-            r"\b(Core\s+i[3579][-\s]\d+\w*|Ryzen\s+\d+\s*\d+\w*|Celeron\s+\w+)\b",
-            text,
-            re.IGNORECASE,
-        )
-        if m:
-            specifics["Processor"] = m.group(1)
-
-    m = re.search(r"(\d+)\s*GB\s*RAM", text, re.IGNORECASE)
-    if m:
-        specifics["RAM Size"] = f"{m.group(1)} GB"
-
-    m = re.search(r"(\d+)\s*(GB|TB)\s*SSD", text, re.IGNORECASE)
-    if m:
-        specifics["SSD Capacity"] = f"{m.group(1)} {m.group(2).upper()}"
-
-    # ── Any extra attributes the intake agent stored win over defaults ──────
-    attrs = item.attributes or {}
-    for key, val in attrs.items():
-        if key not in {"brand"} and val:
-            specifics[key.replace("_", " ").title()] = str(val)
-
-    return specifics
-
-
 async def _publish_via_trading_api(
     item: Item,
     price: float,
@@ -801,6 +647,7 @@ async def _publish_via_trading_api(
     policies: PolicyIds,
     image_urls: list[str],
     token: SellerToken,
+    specifics: dict[str, str] | None = None,
 ) -> PublishResult:
     """Publish a listing via the classic Trading API (XML) as a fallback.
 
@@ -821,15 +668,20 @@ async def _publish_via_trading_api(
         f"<PictureURL>{xml_escape(url)}</PictureURL>" for url in (image_urls or [])[:12]
     )
 
-    # Build ItemSpecifics XML from item fields and parsed attributes
-    item_specifics = _build_item_specifics(item)
-    item_specifics_xml = "".join(
-        f"<NameValueList><Name>{xml_escape(k)}</Name><Value>{xml_escape(v)}</Value></NameValueList>"
-        for k, v in item_specifics.items()
-    )
-    item_specifics_block = (
-        f"<ItemSpecifics>{item_specifics_xml}</ItemSpecifics>" if item_specifics_xml else ""
-    )
+    # ItemSpecifics come pre-inferred by the publisher agent's LLM step.
+    # MULTI-cardinality fields are encoded as a single comma-separated string;
+    # the Trading API wants one NameValueList per name with multiple <Value>
+    # children, which we expand here.
+    nvls: list[str] = []
+    for name, value in (specifics or {}).items():
+        if not value:
+            continue
+        parts = [p.strip() for p in value.split(",") if p.strip()]
+        if not parts:
+            continue
+        values_xml = "".join(f"<Value>{xml_escape(p)}</Value>" for p in parts)
+        nvls.append(f"<NameValueList><Name>{xml_escape(name)}</Name>{values_xml}</NameValueList>")
+    item_specifics_block = f"<ItemSpecifics>{''.join(nvls)}</ItemSpecifics>" if nvls else ""
 
     xml_body = (
         '<?xml version="1.0" encoding="utf-8"?>'
@@ -923,6 +775,7 @@ async def publish_offer(
     category_id: str | None = None,
     policies: PolicyIds | None = None,
     image_urls: list[str] | None = None,
+    specifics: dict[str, str] | None = None,
 ) -> PublishResult:
     """Publish an eBay offer, making it a live listing.
 
@@ -969,6 +822,7 @@ async def publish_offer(
                 policies=policies,
                 image_urls=image_urls or [],
                 token=token,
+                specifics=specifics,
             )
 
     logger.error("eBay publish_offer failed: %s %s", r.status_code, r.text)
@@ -1041,7 +895,11 @@ async def end_listing(listing_id: str, reason: str, token: SellerToken) -> None:
 # ---------------------------------------------------------------------------
 
 
-def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict[str, Any]:
+def build_inventory_item_payload(
+    item: Item,
+    image_urls: list[str],
+    specifics: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Build an eBay InventoryItem JSON payload from an internal Item.
 
     Exposed for unit testing — this is the same logic used by create_inventory_item
@@ -1058,16 +916,12 @@ def build_inventory_item_payload(item: Item, image_urls: list[str]) -> dict[str,
         product["brand"] = item.brand
 
     aspects: dict[str, list[str]] = {}
-    if item.brand:
-        aspects["Brand"] = [item.brand]
-    if item.category:
-        aspects["Type"] = [item.category]
-    if item.subcategory:
-        aspects["Sub-Type"] = [item.subcategory]
-    attrs = item.attributes or {}
-    for key, val in attrs.items():
-        if key != "brand" and val:
-            aspects[key.replace("_", " ").title()] = [str(val)]
+    for name, value in (specifics or {}).items():
+        if not value:
+            continue
+        parts = [p.strip() for p in value.split(",") if p.strip()]
+        if parts:
+            aspects[name] = parts
     if aspects:
         product["aspects"] = aspects
 
