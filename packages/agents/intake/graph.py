@@ -15,12 +15,12 @@ import json
 import logging
 import uuid
 from typing import Any
-from pydantic import BaseModel
 
 import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 

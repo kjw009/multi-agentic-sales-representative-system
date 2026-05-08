@@ -8,11 +8,11 @@ It is intentionally separate from the per-message intake graph.
 import logging
 import uuid
 from typing import Any
-from pydantic import BaseModel
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from packages.agents.pricing.agent import run as run_pricing

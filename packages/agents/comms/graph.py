@@ -10,11 +10,11 @@ Phase 4 replaces the comms_node stub with the full NLP + LLM pipeline.
 
 import uuid
 from typing import Any
-from pydantic import BaseModel
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
+from pydantic import BaseModel
 
 from packages.agents.comms.agent import run as run_agent
 
