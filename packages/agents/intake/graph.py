@@ -338,7 +338,7 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
                 tool_choice="auto",
-                temperature=0,
+                temperature=0.3,
             )
         except Exception:
             logger.exception("Intake model call failed")
