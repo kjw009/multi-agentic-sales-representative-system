@@ -454,7 +454,7 @@ async def _generate_listing_text(
             {"role": "system", "content": _LISTING_GEN_SYSTEM},
             {"role": "user", "content": user_content},
         ],
-        temperature=0.3,
+        temperature=0.6,
     )
 
     text = (response.choices[0].message.content or "").strip()
