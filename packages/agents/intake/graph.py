@@ -296,6 +296,8 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
     2. Executes any tools the LLM chooses to 'call'.
     3. Returns the final reply.
     """
+    if isinstance(state, dict):
+        state = IntakeState(**state)
     session = config["configurable"]["session"]
     seller_id = uuid.UUID(state.seller_id)
     item_id = uuid.UUID(state.item_id) if state.item_id else None
