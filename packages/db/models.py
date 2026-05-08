@@ -453,6 +453,24 @@ class Conversation(Base):
     )
 
 
+class EbayOAuthState(Base):
+    """Short-lived CSRF state nonce for the eBay OAuth flow.
+
+    Replaces Redis: rows expire after _STATE_TTL seconds and are deleted
+    atomically when the callback consumes them.
+    """
+
+    __tablename__ = "ebay_oauth_states"
+
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class BuyerMessage(Base):
     __tablename__ = "buyer_messages"
 

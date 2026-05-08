@@ -1,7 +1,6 @@
-import json
 import logging
 import secrets
-import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -13,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.deps import get_current_seller
 from packages.config import settings
 from packages.crypto import encrypt_token
-from packages.db.models import Platform, PlatformCredential, Seller
+from packages.db.models import EbayOAuthState, Platform, PlatformCredential, Seller
 from packages.db.session import get_session
 from packages.platform_adapters.ebay.oauth import (
     build_authorization_url,
@@ -26,11 +25,10 @@ logger = logging.getLogger(__name__)
 # APIRouter for eBay OAuth endpoints
 router = APIRouter(prefix="/auth/ebay", tags=["ebay-oauth"])
 
-# prevent CSRF (Cross-Site Request Forgery) attacks by using a state nonce,
+# prevent CSRF (Cross-Site Request Forgery) attacks by using a state nonce.
 # see https://www.rfc-editor.org/rfc/rfc7636 (IETF)
-# This allows user to connect back with ebay after  ebay authentication redirects back to the chat page.
-# Time-to-live for OAuth state nonce in Redis (10 minutes)
-_STATE_TTL = 600  # seconds — how long the state nonce lives in Redis
+# Nonce rows live in Postgres and expire after this many seconds.
+_STATE_TTL = 600  # seconds
 
 
 # Frontend page the seller is redirected to after OAuth completes
@@ -38,39 +36,22 @@ def _frontend_chat() -> str:
     return f"{settings.frontend_base_url}/chat"
 
 
-def _redis() -> Any:
-    """
-    Connects to Redis to store temporary OAuth session data.
-
-    Helper function to create an async Redis client.
-
-    Returns a Redis connection using the URL from settings, with decode_responses enabled.
-    """
-    import redis.asyncio as aioredis
-
-    return aioredis.from_url(settings.redis_url, decode_responses=True)
-
-
 @router.get("/connect")
-async def ebay_connect(seller: Seller = Depends(get_current_seller)) -> dict[str, Any]:
+async def ebay_connect(
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
     """
     Generate a login URL. The frontend calls and redirects user to ebay.
 
     Returns the eBay authorization URL. The frontend should redirect the user there.
-    Stores PKCE verifier + seller_id in Redis keyed by the state nonce.
+    Stores the state nonce in Postgres for CSRF verification on callback.
     """
     state = secrets.token_urlsafe(32)
+    expires_at = datetime.now(UTC) + timedelta(seconds=_STATE_TTL)
 
-    r = _redis()
-    try:
-        # Link the seller to the state nonce in Redis for verification after redirect.
-        await r.setex(
-            f"ebay:oauth:state:{state}",
-            _STATE_TTL,
-            json.dumps({"seller_id": str(seller.id)}),
-        )
-    finally:
-        await r.aclose()
+    session.add(EbayOAuthState(state=state, seller_id=seller.id, expires_at=expires_at))
+    await session.commit()
 
     return {"authorization_url": build_authorization_url(state)}
 
@@ -95,24 +76,25 @@ async def ebay_callback(
         logger.info("eBay OAuth consent was declined")
         return RedirectResponse(url=f"{_frontend_chat()}?ebay=declined", status_code=302)
 
-    # Verify state exists in Redis for this request (CSRF protection).
+    # Verify state nonce exists in Postgres (CSRF protection).
     if state is None:
         logger.warning("eBay OAuth callback received without state parameter")
         return RedirectResponse(url=f"{_frontend_chat()}?ebay=error", status_code=302)
 
-    r = _redis()
-    try:
-        # Retrieve and delete the stored state data atomically
-        stored = await r.getdel(f"ebay:oauth:state:{state}")
-    finally:
-        await r.aclose()
+    oauth_state = await session.scalar(
+        select(EbayOAuthState).where(
+            EbayOAuthState.state == state,
+            EbayOAuthState.expires_at > datetime.now(UTC),
+        )
+    )
 
-    if stored is None:
+    if oauth_state is None:
         logger.warning("eBay OAuth callback received with invalid or expired state")
         return RedirectResponse(url=f"{_frontend_chat()}?ebay=error", status_code=302)
 
-    data = json.loads(stored)
-    seller_id = uuid.UUID(data["seller_id"])
+    seller_id = oauth_state.seller_id
+    await session.delete(oauth_state)
+    await session.flush()
 
     # Exchange the code for tokens (Short-lived access token + Long-lived refresh token)
     try:

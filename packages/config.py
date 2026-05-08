@@ -24,9 +24,6 @@ class Settings(BaseSettings):
     # Database (Postgres)
     database_url: str = "postgresql+asyncpg://salesrep:salesrep@localhost:5432/salesrep"  # Uses asyncpg for asynchronous database operations.
 
-    # Redis (for short-lived caching, e.g. OAuth state)
-    redis_url: str = "redis://localhost:6379/0"  # use ElastiCache in production
-
     # AWS SQS (for asynchronous job processing)
     sqs_queue_url: str = ""  # URL of the SQS queue for asynchronous processing
     sqs_region: str = "us-east-1"
@@ -109,7 +106,7 @@ def configure_tracing() -> None:
 
     Push LangSmith env vars so the SDK picks them up globally.
 
-    Call this once at process startup (API, Celery worker) *before* any
+    Call this once at process startup (API, SQS worker) *before* any
     LangGraph graph is compiled or invoked.
     """
     if not settings.langsmith_tracing or not settings.langsmith_api_key:
