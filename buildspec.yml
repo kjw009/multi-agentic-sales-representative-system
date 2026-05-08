@@ -34,15 +34,23 @@ phases:
     on-failure: ABORT
     commands:
       - |
+        # Only deploy when merging/pushing to main
+        BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF:-}"
+        if [ "$BRANCH" != "refs/heads/main" ]; then
+          echo "Branch is '$BRANCH' — skipping deploy (main only)"
+          exit 0
+        fi
+      - |
         CMD_ID=$(aws ssm send-command \
           --region $AWS_REGION \
           --instance-ids $EC2_INSTANCE_ID \
           --document-name "AWS-RunShellScript" \
           --parameters '{"commands":[
+            "set -e",
             "cd /home/ubuntu/multi-agentic-sales-representative-system",
             "git pull origin main",
-            "sudo docker compose up -d --no-build",
-            "sudo docker compose build api",
+            "sudo docker compose build api sqs-worker",
+            "sudo docker compose run --rm api uv run alembic upgrade head",
             "sudo docker compose up -d"
           ]}' \
           --output text \
