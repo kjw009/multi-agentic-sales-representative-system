@@ -84,5 +84,5 @@ async def run(
     )
 
     # Extract and convert the updated item ID
-    updated_item_id = uuid.UUID(state.item_id) if state.item_id else None
-    return state.reply, updated_item_id, state.needs_image, state.complete
+    updated_item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
+    return state["reply"], updated_item_id, state["needs_image"], state["complete"]
