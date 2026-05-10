@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -72,6 +73,16 @@ class MessageDirection(enum.StrEnum):
     outbound = "outbound"
 
 
+class NegotiationStatus(enum.StrEnum):
+    # State machine for buyer-seller negotiation threads
+    active = "active"  # Offer received, awaiting agent decision
+    countered = "countered"  # Counter-offer sent to buyer
+    accepted = "accepted"  # Offer accepted → sale confirmation
+    declined = "declined"  # Offer declined by agent
+    expired = "expired"  # Timed out with no response
+    seller_review = "seller_review"  # Agent escalated to seller for approval
+
+
 # --- MODELS ---
 class Seller(Base):
     __tablename__ = "sellers"
@@ -115,6 +126,21 @@ class Seller(Base):
     )
     listings: Mapped[list["Listing"]] = relationship(
         "Listing",
+        back_populates="seller",
+        cascade="all, delete-orphan",
+    )
+    negotiations: Mapped[list["Negotiation"]] = relationship(
+        "Negotiation",
+        back_populates="seller",
+        cascade="all, delete-orphan",
+    )
+    sales: Mapped[list["Sale"]] = relationship(
+        "Sale",
+        back_populates="seller",
+        cascade="all, delete-orphan",
+    )
+    clarification_requests: Mapped[list["ClarificationRequest"]] = relationship(
+        "ClarificationRequest",
         back_populates="seller",
         cascade="all, delete-orphan",
     )
@@ -483,6 +509,14 @@ class BuyerMessage(Base):
         index=True,
     )
 
+    # RLS-required denormalized seller reference
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     # ID from eBay
     message_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
 
@@ -495,9 +529,288 @@ class BuyerMessage(Base):
 
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
+    # Set by the SQS worker after NLP + Agent 4 have processed this message.
+    # Prevents re-processing on worker retries.
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     # Relationships
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
+    nlp_annotation: Mapped["NlpAnnotation | None"] = relationship(
+        "NlpAnnotation",
+        back_populates="buyer_message",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    offer_signals: Mapped[list["OfferSignal"]] = relationship(
+        "OfferSignal",
+        back_populates="buyer_message",
+        cascade="all, delete-orphan",
+    )
+    entity_mentions: Mapped[list["EntityMention"]] = relationship(
+        "EntityMention",
+        back_populates="buyer_message",
+        cascade="all, delete-orphan",
+    )
+
+
+# --- PHASE 4: NEGOTIATION & NLP MODELS ---
+
+
+class Negotiation(Base):
+    """Tracks active offer threads between a buyer and the system."""
+
+    __tablename__ = "negotiations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    listing_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("listings.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Offer tracking
+    current_offer: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    counter_offer: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    walk_away_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+
+    status: Mapped[NegotiationStatus] = mapped_column(
+        Enum(NegotiationStatus, name="negotiation_status"),
+        nullable=False,
+        default=NegotiationStatus.active,
+    )
+    rounds_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    # Relationships
+    seller: Mapped["Seller"] = relationship("Seller", back_populates="negotiations")
+    conversation: Mapped["Conversation"] = relationship("Conversation")
+
+
+class Sale(Base):
+    """Finalized sale record — created when Agent 4 accepts an offer."""
+
+    __tablename__ = "sales"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    listing_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("listings.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    negotiation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("negotiations.id", ondelete="SET NULL"),
+        index=True,
+    )
+
+    sale_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    buyer_handle: Mapped[str] = mapped_column(String(255), nullable=False)
+    platform: Mapped[Platform] = mapped_column(
+        Enum(Platform, name="platform", create_type=False),
+        nullable=False,
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # Relationships
+    seller: Mapped["Seller"] = relationship("Seller", back_populates="sales")
+    item: Mapped["Item"] = relationship("Item")
+    negotiation: Mapped["Negotiation | None"] = relationship("Negotiation")
+
+
+class ClarificationRequest(Base):
+    """Tracks when Agent 4 requires seller input to answer a buyer question."""
+
+    __tablename__ = "clarification_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    buyer_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("buyer_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str | None] = mapped_column(Text)
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Relationships
+    seller: Mapped["Seller"] = relationship("Seller", back_populates="clarification_requests")
+    conversation: Mapped["Conversation"] = relationship("Conversation")
+    buyer_message: Mapped["BuyerMessage"] = relationship("BuyerMessage")
+
+
+class NlpAnnotation(Base):
+    """NLP analysis results for a single buyer message."""
+
+    __tablename__ = "nlp_annotations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    buyer_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("buyer_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,  # One annotation per message
+        index=True,
+    )
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    intent: Mapped[str] = mapped_column(String(50), nullable=False)
+    intent_confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    sentiment: Mapped[str] = mapped_column(String(20), nullable=False)
+    sentiment_score: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # Full model output for debugging/auditing
+    raw_output: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # Relationships
+    buyer_message: Mapped["BuyerMessage"] = relationship(
+        "BuyerMessage", back_populates="nlp_annotation"
+    )
+
+
+class OfferSignal(Base):
+    """Extracted price offer from a buyer message (regex or NLP)."""
+
+    __tablename__ = "offer_signals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    buyer_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("buyer_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="GBP")
+    source: Mapped[str] = mapped_column(String(20), nullable=False)  # "regex" or "nlp"
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # Relationships
+    buyer_message: Mapped["BuyerMessage"] = relationship(
+        "BuyerMessage", back_populates="offer_signals"
+    )
+
+
+class EntityMention(Base):
+    """spaCy NER extraction from a buyer message."""
+
+    __tablename__ = "entity_mentions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    buyer_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("buyer_messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # e.g. PERSON, MONEY, ORG
+    entity_value: Mapped[str] = mapped_column(String(255), nullable=False)
+    start_char: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_char: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    # Relationships
+    buyer_message: Mapped["BuyerMessage"] = relationship(
+        "BuyerMessage", back_populates="entity_mentions"
+    )
