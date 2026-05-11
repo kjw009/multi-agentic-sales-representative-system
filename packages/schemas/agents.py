@@ -63,3 +63,11 @@ class CommsResult(BaseModel):
     # or archive the message as spam/irrelevant.
     action: Literal["draft", "send", "ignore"]
     requires_approval: bool  # If True, the human seller MUST click 'send' manually
+
+    # Negotiation context (populated when the agent handles an offer)
+    negotiation_id: uuid.UUID | None = None
+    offer_amount: float | None = None
+
+    # NLP analysis summary (for UI display / auditing)
+    nlp_intent: str | None = None
+    nlp_sentiment: str | None = None
