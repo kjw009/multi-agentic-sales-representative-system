@@ -10,7 +10,15 @@ from packages.agents.intake.agent import load_history
 from packages.agents.intake.agent import run as run_agent
 from packages.agents.pipeline import run_pipeline
 from packages.config import settings
-from packages.db.models import ChatMessage, ChatRole, Item, Listing, Platform, Seller
+from packages.db.models import (
+    ChatMessage,
+    ChatRole,
+    ClarificationRequest,
+    Item,
+    Listing,
+    Platform,
+    Seller,
+)
 from packages.db.session import get_session
 from packages.schemas.agents import ComparableListing, PricingResult
 from packages.schemas.intake import MessageRequest, MessageResponse
@@ -64,6 +72,58 @@ async def intake_message(
     )
     session.add(assistant_msg)
     await session.commit()  # Save both messages to the DB
+
+    # --- Check for pending clarification requests ---
+    # If Agent 4 asked the seller a question about a buyer message,
+    # the seller's reply via intake resolves that clarification.
+    if body.item_id:
+        pending_clarification = await session.scalar(
+            select(ClarificationRequest).where(
+                ClarificationRequest.seller_id == seller.id,
+                ClarificationRequest.resolved == False,  # noqa: E712
+            )
+        )
+        if pending_clarification:
+            from datetime import UTC, datetime
+
+            pending_clarification.answer = body.content
+            pending_clarification.resolved = True
+            pending_clarification.resolved_at = datetime.now(UTC)
+            await session.commit()
+
+            # Trigger retry of the buyer message with the seller's answer
+            if settings.sqs_queue_url:
+                from packages.bus.sqs import enqueue
+
+                enqueue(
+                    "retry_buyer_message",
+                    clarification_request_id=str(pending_clarification.id),
+                )
+            else:
+                from packages.agents.comms.retry import retry_buyer_message
+
+                background_tasks.add_task(
+                    retry_buyer_message,
+                    clarification_request_id=pending_clarification.id,
+                    session=session,
+                )
+
+            # Save the reply and return
+            assistant_msg = ChatMessage(
+                seller_id=seller.id,
+                item_id=body.item_id,
+                role=ChatRole.assistant,
+                content="Thanks! I've forwarded your answer to the buyer and will craft a reply.",
+            )
+            session.add(assistant_msg)
+            await session.commit()
+
+            return MessageResponse(
+                content="Thanks! I've forwarded your answer to the buyer and will craft a reply.",
+                item_id=body.item_id,
+                needs_image=False,
+                intake_complete=False,
+            )
 
     # If the conversation is complete, start the downstream pipeline (pricing/publishing)
     if complete and item_id:
