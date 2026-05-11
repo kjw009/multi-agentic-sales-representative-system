@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     ebay_marketplace_id: str = "EBAY_GB"
     ebay_verification_token: str = ""  # for Event Notification API endpoint validation
     ebay_webhook_endpoint: str = ""  # public URL where the webhook will be hosted
+    skip_webhook_hmac: bool = False  # bypass HMAC validation in dev/test
     frontend_base_url: str = "http://localhost:3000"  # override in production
 
     # Comma-separated list of origins allowed to make CORS requests against

@@ -58,6 +58,40 @@ def handle_publish_only(seller_id: str, item_id: str) -> None:
     asyncio.run(run_publisher_only(uuid.UUID(seller_id), uuid.UUID(item_id)))
 
 
+@register("process_buyer_message")
+def handle_process_buyer_message(
+    message_id: str,
+    conversation_id: str,
+    seller_id: str,
+    raw_text: str,
+) -> None:
+    """Run NLP pipeline + Agent 4 graph for a buyer message."""
+    from packages.agents.comms.graph import run_comms
+
+    asyncio.run(
+        run_comms(
+            message_id=uuid.UUID(message_id),
+            conversation_id=uuid.UUID(conversation_id),
+            seller_id=uuid.UUID(seller_id),
+            raw_text=raw_text,
+        )
+    )
+
+
+@register("retry_buyer_message")
+def handle_retry_buyer_message(clarification_request_id: str) -> None:
+    """Re-run Agent 4 after the seller answers a clarification question."""
+    from packages.agents.comms.retry import retry_buyer_message
+    from packages.db.session import SessionLocal
+
+    async def _run() -> None:
+        async with SessionLocal() as session:
+            await retry_buyer_message(uuid.UUID(clarification_request_id), session)
+            await session.commit()
+
+    asyncio.run(_run())
+
+
 # ---------------------------------------------------------------------------
 # Worker loop
 # ---------------------------------------------------------------------------
