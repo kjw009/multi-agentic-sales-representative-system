@@ -6,16 +6,34 @@ Covers:
   - Concurrent confirmation race condition via asyncio.gather
 """
 
+import socket
 import uuid
+from urllib.parse import urlparse
 
 import pytest
 
 from packages.agents.comms.sale import AlreadySoldError, confirm_sale
+from packages.config import settings
 from packages.db.models import Item, ItemStatus, Listing, ListingStatus, Platform, Seller
 from packages.db.session import SessionLocal
 
-# These tests require a running Postgres database
-pytestmark = [pytest.mark.asyncio]
+
+def _postgres_reachable() -> bool:
+    """Quick TCP probe so we can skip these tests when Postgres isn't running."""
+    try:
+        parsed = urlparse(settings.database_url.replace("+asyncpg", ""))
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 5432
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(not _postgres_reachable(), reason="Postgres not reachable"),
+]
 
 
 @pytest.fixture
