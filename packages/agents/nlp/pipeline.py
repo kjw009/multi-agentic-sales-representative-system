@@ -112,6 +112,6 @@ async def analyse_message(
         sentiment=sentiment,
         sentiment_score=sentiment_score,
         offer_amounts=[s.amount for s in offer_signals],
-        entities=[e.model_dump() for e in entities],
-        offer_signals=[s.model_dump() for s in offer_signals],
+        entities=list(entities),
+        offer_signals=list(offer_signals),
     )

@@ -6,6 +6,7 @@ Pattern matches packages/agents/intake/agent.py.
 
 import logging
 import uuid
+from typing import Any
 
 from langsmith import traceable
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +30,7 @@ async def run(
     Invokes the LangGraph to handle NLP analysis, LLM reasoning with tools,
     and action execution. Returns the agent's result with metadata.
     """
-    state: dict = await comms_graph.ainvoke(
+    state: dict[str, Any] = await comms_graph.ainvoke(
         CommsState(
             seller_id=str(seller_id),
             conversation_id=str(conversation_id),

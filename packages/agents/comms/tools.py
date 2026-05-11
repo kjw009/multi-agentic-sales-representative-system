@@ -9,6 +9,7 @@ Pattern matches packages/agents/intake/tools.py.
 
 import logging
 import uuid
+from typing import Any
 
 from langsmith import traceable
 from sqlalchemy import select
@@ -156,7 +157,7 @@ TOOL_DEFINITIONS = [
 @traceable(name="comms_execute_tool", run_type="tool")
 async def execute_tool(
     tool_name: str,
-    tool_input: dict,
+    tool_input: dict[str, Any],
     *,
     walk_away_price: float,
     conversation_id: uuid.UUID,

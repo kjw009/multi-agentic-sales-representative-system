@@ -18,12 +18,16 @@ Multi-node LangGraph:
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import openai
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 from langsmith import traceable
+from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
+from openai.types.chat.chat_completion_message_function_tool_call import (
+    ChatCompletionMessageFunctionToolCall,
+)
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -215,8 +219,8 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
         try:
             response = await client.chat.completions.create(
                 model=settings.model_agent4,
-                messages=messages,
-                tools=TOOL_DEFINITIONS,
+                messages=cast(list[ChatCompletionMessageParam], messages),
+                tools=cast(list[ChatCompletionToolParam], TOOL_DEFINITIONS),
                 tool_choice="auto",
                 temperature=0.3,
             )
@@ -228,7 +232,12 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
         msg = response.choices[0].message
 
         # No tool calls — LLM responded with plain text
-        if not msg.tool_calls:
+        function_tool_calls = [
+            tc
+            for tc in (msg.tool_calls or [])
+            if isinstance(tc, ChatCompletionMessageFunctionToolCall)
+        ]
+        if not function_tool_calls:
             draft_reply = msg.content or ""
             action = "send" if nlp_result.intent in _AUTO_SEND_INTENTS else "draft"
             requires_approval = nlp_result.intent not in _AUTO_SEND_INTENTS
@@ -248,7 +257,7 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
                             "arguments": tc.function.arguments,
                         },
                     }
-                    for tc in msg.tool_calls
+                    for tc in function_tool_calls
                 ],
             }
         )
@@ -256,7 +265,7 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
         terminal_reply: str | None = None
 
         # Execute each tool call
-        for tc in msg.tool_calls:
+        for tc in function_tool_calls:
             tool_name = tc.function.name
             try:
                 tool_input = json.loads(tc.function.arguments or "{}")

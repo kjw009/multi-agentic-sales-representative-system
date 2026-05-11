@@ -145,13 +145,13 @@ async def ebay_webhook_receive(
                 return Response(status_code=status.HTTP_200_OK)
 
         # --- 4. Upsert Conversation ---
-        conversation = await session.scalar(
-            select(Conversation).where(
-                Conversation.seller_id == seller_id,
-                Conversation.buyer_handle == buyer_handle,
-                (Conversation.listing_id == listing.id) if listing else True,
-            )
+        conv_stmt = select(Conversation).where(
+            Conversation.seller_id == seller_id,
+            Conversation.buyer_handle == buyer_handle,
         )
+        if listing:
+            conv_stmt = conv_stmt.where(Conversation.listing_id == listing.id)
+        conversation = await session.scalar(conv_stmt)
         if not conversation:
             conversation = Conversation(
                 seller_id=seller_id,
