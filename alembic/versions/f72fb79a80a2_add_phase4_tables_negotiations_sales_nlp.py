@@ -201,7 +201,6 @@ def upgrade() -> None:
     op.create_foreign_key(
         None, "buyer_messages", "sellers", ["seller_id"], ["id"], ondelete="CASCADE"
     )
-    op.drop_constraint(op.f("uq_conversations_seller_buyer"), "conversations", type_="unique")
     op.add_column("nlp_annotations", sa.Column("buyer_message_id", sa.UUID(), nullable=False))
     op.add_column("nlp_annotations", sa.Column("seller_id", sa.UUID(), nullable=False))
     op.add_column("nlp_annotations", sa.Column("sentiment_score", sa.Float(), nullable=False))
@@ -348,12 +347,6 @@ def downgrade() -> None:
     op.drop_column("nlp_annotations", "sentiment_score")
     op.drop_column("nlp_annotations", "seller_id")
     op.drop_column("nlp_annotations", "buyer_message_id")
-    op.create_unique_constraint(
-        op.f("uq_conversations_seller_buyer"),
-        "conversations",
-        ["seller_id", "buyer_handle"],
-        postgresql_nulls_not_distinct=False,
-    )
     op.drop_constraint(None, "buyer_messages", type_="foreignkey")
     op.drop_index(op.f("ix_buyer_messages_seller_id"), table_name="buyer_messages")
     op.drop_column("buyer_messages", "processed_at")
