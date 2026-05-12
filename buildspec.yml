@@ -58,14 +58,16 @@ phases:
           --output text \
           --query "Command.CommandId")
       - echo "SSM command $CMD_ID dispatched"
+      # 120 × 15s = 30 min. The image now installs torch/transformers/spaCy,
+      # so the first uncached `docker compose build` can take 10+ min.
       - |
-        for i in $(seq 1 30); do
+        for i in $(seq 1 120); do
           STATUS=$(aws ssm get-command-invocation \
             --region $AWS_REGION \
             --command-id $CMD_ID \
             --instance-id $EC2_INSTANCE_ID \
             --query "Status" --output text 2>/dev/null || echo "Pending")
-          echo "[$i/30] $STATUS"
+          echo "[$i/120] $STATUS"
           if [ "$STATUS" = "Success" ]; then exit 0; fi
           if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ]; then
             aws ssm get-command-invocation \
@@ -75,7 +77,7 @@ phases:
               --query "StandardErrorContent" --output text
             exit 1
           fi
-          sleep 10
+          sleep 15
         done
         echo "Timed out waiting for deploy"
         exit 1
