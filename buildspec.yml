@@ -55,7 +55,9 @@ phases:
             "export HOME=/root",
             "git config --global --add safe.directory /home/ubuntu/multi-agentic-sales-representative-system",
             "cd /home/ubuntu/multi-agentic-sales-representative-system",
-            "git pull origin main",
+            "git fetch origin",
+            "git reset --hard origin/main",
+            "sudo docker system prune -f",
             "sudo docker compose build api sqs-worker",
             "sudo docker compose run --rm api uv run alembic upgrade head",
             "sudo docker compose up -d"
@@ -75,6 +77,13 @@ phases:
           echo "[$i/120] $STATUS"
           if [ "$STATUS" = "Success" ]; then exit 0; fi
           if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ]; then
+            echo "=== STDOUT ==="
+            aws ssm get-command-invocation \
+              --region $AWS_REGION \
+              --command-id $CMD_ID \
+              --instance-id $EC2_INSTANCE_ID \
+              --query "StandardOutputContent" --output text
+            echo "=== STDERR ==="
             aws ssm get-command-invocation \
               --region $AWS_REGION \
               --command-id $CMD_ID \
