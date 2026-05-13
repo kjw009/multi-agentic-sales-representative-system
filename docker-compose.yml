@@ -57,6 +57,9 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+      # Persist Hugging Face model cache across container restarts.
+      # On first start the volume is seeded from the image's pre-baked /opt/hf-cache.
+      - hf_cache:/opt/hf-cache
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,6 +81,8 @@ services:
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-salesrep}
+    volumes:
+      - hf_cache:/opt/hf-cache
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,3 +90,4 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  hf_cache:
