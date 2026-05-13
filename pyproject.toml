@@ -55,6 +55,8 @@ nlp = [
   "spacy>=3.8",
   "sentence-transformers>=3.3",
   "transformers>=4.46",
+  # Explicit torch dep so [tool.uv.sources] can route it to the CPU index.
+  "torch>=2.2",
 ]
 scraping = [
   "scrapy>=2.11",
@@ -111,6 +113,19 @@ required-environments = [
   "sys_platform == 'darwin' and platform_machine == 'arm64'",
   "sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
+
+# Pull torch from the CPU-only wheel index on Linux. The default PyPI wheel
+# pulls ~5 GB of CUDA libraries we don't use (Agent 4 / NLP run on CPU).
+# macOS keeps the default wheel (Apple Silicon needs MPS, not CUDA).
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [
