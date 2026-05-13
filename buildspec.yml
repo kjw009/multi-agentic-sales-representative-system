@@ -33,14 +33,19 @@ phases:
   build:
     on-failure: ABORT
     commands:
+      # Single shell block so `exit 0` from the branch guard short-circuits
+      # the entire deploy. Each `- |` is a separate sub-shell, so an early
+      # exit from one block does NOT skip the next.
       - |
-        # Only deploy when merging/pushing to main
+        set -e
+
+        # Only deploy when merging/pushing to main.
         BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF:-}"
         if [ "$BRANCH" != "refs/heads/main" ]; then
           echo "Branch is '$BRANCH' — skipping deploy (main only)"
           exit 0
         fi
-      - |
+
         CMD_ID=$(aws ssm send-command \
           --region $AWS_REGION \
           --instance-ids $EC2_INSTANCE_ID \
@@ -57,10 +62,10 @@ phases:
           ]}' \
           --output text \
           --query "Command.CommandId")
-      - echo "SSM command $CMD_ID dispatched"
-      # 120 × 15s = 30 min. The image now installs torch/transformers/spaCy,
-      # so the first uncached `docker compose build` can take 10+ min.
-      - |
+        echo "SSM command $CMD_ID dispatched"
+
+        # 120 × 15s = 30 min. The image installs torch/transformers/spaCy and
+        # pre-bakes HF models, so the first uncached build can take 10+ min.
         for i in $(seq 1 120); do
           STATUS=$(aws ssm get-command-invocation \
             --region $AWS_REGION \
