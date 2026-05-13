@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # General environment
     app_env: str = "development"
     log_level: str = "INFO"
+    sns_enabled: bool = False
 
     # Database (Postgres)
     database_url: str = "postgresql+asyncpg://salesrep:salesrep@localhost:5432/salesrep"  # Uses asyncpg for asynchronous database operations.
