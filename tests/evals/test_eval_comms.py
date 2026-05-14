@@ -1,158 +1,164 @@
-import os
 import uuid
 
 import pytest
-from langsmith import Client
-from langsmith.evaluation import evaluate
+from langsmith import Client, aevaluate
 
 from packages.agents.comms.graph import CommsState, agent_node
+from packages.config import settings
 from packages.db.models import Conversation, Item, Listing
 
+from tests.evals._helpers import collect_scores, mean
 
-class FakeSessionComms:
+
+class _FakeSessionComms:
+    """In-memory shim: only the methods the comms agent_node touches."""
+
     def __init__(self, price: float, walk_away_price: float):
         self.price = price
         self.walk_away_price = walk_away_price
-        self._flushed = False
-        self._added = []
 
-    async def get(self, model, id):
-        if model == Conversation:
+    async def get(self, model, _id):
+        if model is Conversation:
             conv = Conversation()
-            conv.id = id
+            conv.id = _id
             conv.listing_id = uuid.uuid4()
             return conv
-        elif model == Listing:
+        if model is Listing:
             listing = Listing()
-            listing.id = id
+            listing.id = _id
             listing.item_id = uuid.uuid4()
             listing.posted_price = self.price
             return listing
-        elif model == Item:
+        if model is Item:
             item = Item()
-            item.id = id
+            item.id = _id
             item.name = "Mock Item"
             item.description = "A great mock item."
+            item.category = "Other"
             item.recommended_price = self.price
             item.seller_floor_price = self.walk_away_price
             return item
         return None
 
-    async def scalars(self, stmt):
-        # Return an empty list for history
-        return []
+    async def scalars(self, _stmt):
+        return []  # No conversation history
 
-    async def scalar(self, stmt):
+    async def scalar(self, _stmt):
         return None
 
-    def add(self, obj):
-        self._added.append(obj)
+    def add(self, _obj):
+        return None
 
     async def flush(self):
-        self._flushed = True
+        return None
 
     async def commit(self):
-        pass
+        return None
+
 
 async def comms_target(inputs: dict) -> dict:
-    """
-    Evaluates the Comms agent node.
-    """
-    message = inputs.get("message", "")
-    price = inputs.get("price", 100.0)
-    walk_away = inputs.get("walk_away_price", 80.0)
-
-    session = FakeSessionComms(price=price, walk_away_price=walk_away)
-
-    # We populate NLP fields naively based on the input text to simulate the NLP node
-    intent = "price_offer" if "$" in message or "take" in message else "question"
-    offer_amounts = [float(s.strip("$")) for s in message.split() if s.startswith("$")]
+    """Run agent_node with a pre-classified buyer message and return the
+    chosen action + draft + offer amount."""
+    session = _FakeSessionComms(
+        price=float(inputs.get("price", 100.0)),
+        walk_away_price=float(inputs.get("walk_away_price", 80.0)),
+    )
 
     state = CommsState(
         seller_id=str(uuid.uuid4()),
         conversation_id=str(uuid.uuid4()),
         message_id=str(uuid.uuid4()),
-        raw_text=message,
-        nlp_intent=intent,
+        raw_text=inputs.get("message", ""),
+        nlp_intent=inputs.get("intent", "question"),
         nlp_intent_confidence=0.9,
         nlp_sentiment="neutral",
-        nlp_offer_amounts=offer_amounts
+        nlp_sentiment_score=0.0,
+        nlp_offer_amounts=[float(x) for x in inputs.get("offer_amounts", [])],
     )
 
-    # Run agent node directly
     result = await agent_node(state, config={"configurable": {"session": session}})
 
     return {
         "action": result.get("action"),
         "draft_reply": result.get("draft_reply"),
-        "offer_amount": result.get("offer_amount")
+        "offer_amount": result.get("offer_amount"),
     }
 
-def walk_away_price_evaluator(run, example):
-    """
-    Constraint evaluator: Ensures counter offers or accepted offers 
-    never violate the walk away price.
-    """
-    predicted_action = run.outputs.get("action")
+
+# `agent_node` itself doesn't expose the tool name directly — only "send" or
+# "draft" — so we infer the semantic action from the draft text + offer state.
+def _infer_semantic_action(offer_amount, draft_reply: str) -> str:
+    text = (draft_reply or "").lower()
+    if offer_amount is not None:
+        if any(w in text for w in ("counter", "could you do", "would you do", "how about")):
+            return "counter_offer"
+        if any(w in text for w in ("accept", "deal", "sold", "agreed")):
+            return "accept_offer"
+        return "counter_offer"  # offer_amount set + ambiguous text → treat as counter
+    if any(w in text for w in ("cannot", "can't", "unable", "too low", "decline", "sorry")):
+        return "decline_offer"
+    return "send_info"
+
+
+def action_match_evaluator(run, example) -> dict:
+    """Did the agent pick the action the dataset expects? Honour the optional
+    `allowed_actions` list when the example admits more than one right answer."""
+    expected_action = example.outputs.get("action")
+    allowed = set(example.outputs.get("allowed_actions") or [expected_action])
+
+    predicted_semantic = _infer_semantic_action(
+        run.outputs.get("offer_amount"),
+        run.outputs.get("draft_reply", ""),
+    )
+    score = 1.0 if predicted_semantic in allowed else 0.0
+    return {
+        "key": "action_match",
+        "score": score,
+        "comment": f"expected={sorted(allowed)} predicted={predicted_semantic}",
+    }
+
+
+def walk_away_price_evaluator(run, example) -> dict:
+    """Hard-fail any counter/accept whose price drops below the floor."""
     predicted_price = run.outputs.get("offer_amount")
     walk_away = example.inputs.get("walk_away_price")
 
-    if predicted_action in ["counter_offer", "accept_offer", "draft"] and predicted_price is not None:
-        if predicted_price < walk_away:
-            return {"key": "price_safety", "score": 0.0, "comment": f"Violated walk_away_price! Offered {predicted_price} < {walk_away}"}
-    return {"key": "price_safety", "score": 1.0, "comment": "Safe"}
+    if predicted_price is None or walk_away is None:
+        return {"key": "price_safety", "score": 1.0, "comment": "Not applicable"}
 
-
-def llm_tone_evaluator(run, example):
-    """
-    LLM-as-a-judge to evaluate tone and politeness of the draft reply.
-    """
-    from langchain_core.prompts import ChatPromptTemplate
-    from langchain_openai import ChatOpenAI
-
-    draft_reply = run.outputs.get("draft_reply", "")
-    if not draft_reply:
-        return {"key": "politeness", "score": 0.0, "comment": "Empty reply"}
-
-    prompt = ChatPromptTemplate.from_template(
-        "You are evaluating a customer service response from a seller to a buyer.\n"
-        "Score the politeness and professionalism of the response on a scale of 0 to 1.\n"
-        "0 = Rude, hostile, or unprofessional.\n"
-        "1 = Polite, professional, and helpful.\n\n"
-        "Response: {response}\n\n"
-        "Return ONLY the numeric score (e.g., 0.0, 0.5, 1.0)."
-    )
-
-    # Ensure OPENAI_API_KEY is available (pytest skipif handles this indirectly if same env)
-    if not os.getenv("OPENAI_API_KEY"):
-        return {"key": "politeness", "score": None, "comment": "OPENAI_API_KEY missing, skipped."}
-
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    chain = prompt | llm
-
-    try:
-        # LLM evaluate synchronously for simplicity or await
-        result = chain.invoke({"response": draft_reply})
-        score_text = result.content.strip()
-        score = float(score_text)
-        return {"key": "politeness", "score": score, "comment": f"LLM Judge score: {score}"}
-    except Exception as e:
-        return {"key": "politeness", "score": None, "comment": f"LLM judge failed: {e}"}
+    if float(predicted_price) < float(walk_away):
+        return {
+            "key": "price_safety",
+            "score": 0.0,
+            "comment": f"Floor violation: offered {predicted_price} < walk_away {walk_away}",
+        }
+    return {"key": "price_safety", "score": 1.0, "comment": "Above floor"}
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("LANGSMITH_API_KEY"), reason="LANGSMITH_API_KEY not set")
-async def test_langsmith_eval_comms():
+@pytest.mark.skipif(
+    not settings.langsmith_api_key or not settings.openai_api_key,
+    reason="LANGSMITH_API_KEY and OPENAI_API_KEY required (set in .env)",
+)
+async def test_langsmith_eval_comms() -> None:
     client = Client()
 
     dataset_name = "comms-evals"
     if not client.has_dataset(dataset_name=dataset_name):
         pytest.skip(f"Dataset {dataset_name} not found. Run 'make evals-sync' first.")
 
-    results = await evaluate(
+    results = await aevaluate(
         comms_target,
         data=dataset_name,
-        evaluators=[walk_away_price_evaluator, llm_tone_evaluator],
+        evaluators=[action_match_evaluator, walk_away_price_evaluator],
         experiment_prefix="comms-ci",
         client=client,
     )
+
+    # action_match is the substantive eval; price_safety is a hard constraint
+    # that should never violate. Both must pass their thresholds.
+    scores = await collect_scores(results)
+    action_avg = mean(scores.get("action_match", []))
+    safety_avg = mean(scores.get("price_safety", []))
+    assert action_avg >= 0.6, f"comms action_match avg={action_avg:.2f} < 0.60 threshold"
+    assert safety_avg == 1.0, f"comms price_safety avg={safety_avg:.2f} — floor was violated"
