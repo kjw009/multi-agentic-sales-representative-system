@@ -13,7 +13,7 @@ import hashlib
 import json
 
 import pytest
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 
@@ -22,7 +22,7 @@ from packages.platform_adapters.ebay import webhooks as ebay_webhooks
 
 def _build_signed_envelope(payload: bytes, kid: str, private_key) -> str:
     """Sign `payload` with SHA1-ECDSA, return the base64 envelope eBay would send."""
-    sha1 = hashlib.sha1(payload).digest()  # noqa: S324 — eBay's spec uses SHA1
+    sha1 = hashlib.sha1(payload).digest()
     signature = private_key.sign(sha1, ec.ECDSA(Prehashed(hashes.SHA1())))
     envelope = {
         "alg": "ECDSA",
@@ -71,7 +71,7 @@ async def test_verify_signature_rejects_tampered_payload(keypair_and_kid):
 async def test_verify_signature_rejects_wrong_algorithm(keypair_and_kid):
     private_key, kid = keypair_and_kid
     payload = b"{}"
-    sha1 = hashlib.sha1(payload).digest()  # noqa: S324
+    sha1 = hashlib.sha1(payload).digest()
     signature = private_key.sign(sha1, ec.ECDSA(Prehashed(hashes.SHA1())))
     bad_envelope = base64.b64encode(
         json.dumps(
@@ -104,18 +104,14 @@ def test_normalise_pem_inserts_linebreaks_into_single_line_pem():
 
     assert normalised.startswith("-----BEGIN PUBLIC KEY-----\n")
     assert normalised.endswith("\n-----END PUBLIC KEY-----")
-    body_lines = [
-        line for line in normalised.splitlines() if not line.startswith("-----")
-    ]
+    body_lines = [line for line in normalised.splitlines() if not line.startswith("-----")]
     assert all(len(line) <= 64 for line in body_lines)
     assert "".join(body_lines) == body
 
 
 def test_normalise_pem_passthrough_when_already_multiline():
     pem = (
-        "-----BEGIN PUBLIC KEY-----\n"
-        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n"
-        "-----END PUBLIC KEY-----"
+        "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE\n-----END PUBLIC KEY-----"
     )
     assert ebay_webhooks._normalise_pem(pem) == pem
 

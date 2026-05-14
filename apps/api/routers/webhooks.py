@@ -73,7 +73,9 @@ async def ebay_webhook_receive(
     payload = await request.body()
     signature_header = request.headers.get("X-EBAY-SIGNATURE")
 
-    logger.info("Received eBay webhook notification. Signature header present: %s", bool(signature_header))
+    logger.info(
+        "Received eBay webhook notification. Signature header present: %s", bool(signature_header)
+    )
 
     # --- 1. Validate signature ---
     if not await _validate_signature(signature_header, payload):

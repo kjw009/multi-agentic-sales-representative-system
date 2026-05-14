@@ -257,7 +257,7 @@ async def verify_signature(signature_header: str | None, payload: bytes) -> bool
     # eBay signs the raw HTTP body with SHA1-ECDSA. We hash here ourselves so
     # the cryptography call uses Prehashed — same result, but lets us reuse
     # the digest if we ever want to log it.
-    sha1 = hashlib.sha1(payload).digest()  # noqa: S324 — eBay's spec uses SHA1
+    sha1 = hashlib.sha1(payload).digest()
     try:
         public_key.verify(signature, sha1, ec.ECDSA(Prehashed(hashes.SHA1())))
     except InvalidSignature:
