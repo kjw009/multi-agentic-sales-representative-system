@@ -2,10 +2,10 @@ import json, urllib.request, uuid
 
 payload = json.dumps({
     "notification": {
-        "itemId": "110589527549",
+        "itemId": "110589528217",
         "messageId": str(uuid.uuid4()),
-        "buyerUsername": "testbuyer",
-        "text": "Hi is this still available would you take 1325 pounds"
+        "buyerUsername": "testbuyer123",
+        "text": "2gb ram ? that doesn't sound right. are you sure that right and not a mistake?"
     }
 }).encode()
 
