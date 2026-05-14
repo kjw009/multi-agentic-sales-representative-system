@@ -31,7 +31,6 @@ async def get_drafts(
         .where(
             BuyerMessage.seller_id == seller.id,
             BuyerMessage.requires_approval == True,  # noqa: E712
-            BuyerMessage.processed_at.is_(None),
         )
         .order_by(BuyerMessage.received_at.desc())
     )
