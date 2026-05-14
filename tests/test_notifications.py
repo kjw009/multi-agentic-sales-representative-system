@@ -1,8 +1,9 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from packages.config import settings
-from packages.notifications import create_seller_topic, notify_seller, delete_seller_topic
+from packages.notifications import create_seller_topic, delete_seller_topic, notify_seller
 
 
 @pytest.fixture(autouse=True)

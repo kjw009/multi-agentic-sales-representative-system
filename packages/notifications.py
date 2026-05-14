@@ -1,4 +1,5 @@
 import boto3
+
 from packages.config import settings
 
 _sns = None
