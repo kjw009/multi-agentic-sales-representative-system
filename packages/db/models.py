@@ -462,6 +462,46 @@ class Listing(Base):
     # Relationships
     item: Mapped["Item"] = relationship("Item", back_populates="listings")
     seller: Mapped["Seller"] = relationship("Seller", back_populates="listings")
+    reprice_events: Mapped[list["RepriceEvent"]] = relationship(
+        "RepriceEvent",
+        back_populates="listing",
+        cascade="all, delete-orphan",
+        order_by="RepriceEvent.repriced_at.desc()",
+    )
+
+
+class RepriceEvent(Base):
+    """One row per successful automatic reprice.
+
+    Written by packages/agents/pricing/reprice.py after the eBay
+    update_offer_price call returns OK. Surfaced by GET /listings/reprice-history.
+    """
+
+    __tablename__ = "reprice_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    listing_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("listings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    old_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    new_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+
+    repriced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    listing: Mapped["Listing"] = relationship("Listing", back_populates="reprice_events")
 
 
 class Conversation(Base):
@@ -554,6 +594,11 @@ class BuyerMessage(Base):
 
     draft_reply: Mapped[str | None] = mapped_column(Text)
     requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Phase 5 — draft-edit rate tracking. NULL until the seller acts on the
+    # draft: True when they edited the text before sending, False when they
+    # approved or dismissed it as-is. Used by GET /conversations/stats.
+    seller_edited: Mapped[bool | None] = mapped_column(Boolean)
 
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
