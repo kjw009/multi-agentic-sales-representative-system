@@ -397,7 +397,7 @@ async def action_node(state: CommsState, config: RunnableConfig) -> dict[str, An
                 state.message_id,
             )
             buyer_message = await session.scalar(
-                select(BuyerMessage).where(BuyerMessage.message_id == state.message_id)
+                select(BuyerMessage).where(BuyerMessage.id == uuid.UUID(state.message_id))
             )
             if buyer_message:
                 buyer_message.draft_reply = state.draft_reply
@@ -411,7 +411,7 @@ async def action_node(state: CommsState, config: RunnableConfig) -> dict[str, An
             state.message_id,
         )
         buyer_message = await session.scalar(
-            select(BuyerMessage).where(BuyerMessage.message_id == state.message_id)
+            select(BuyerMessage).where(BuyerMessage.id == uuid.UUID(state.message_id))
         )
         if buyer_message:
             buyer_message.draft_reply = state.draft_reply
