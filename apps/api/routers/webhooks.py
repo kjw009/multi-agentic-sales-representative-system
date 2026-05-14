@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, BackgroundTasks, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from packages.config import settings
 from packages.db.models import BuyerMessage, Conversation, Listing, MessageDirection
@@ -211,7 +212,12 @@ async def ebay_webhook_receive(
         if listing is not None:
             listing.last_buyer_interaction_at = datetime.now(UTC)
 
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            logger.info("Duplicate message_id %s — skipping", message_id_str)
+            return Response(status_code=status.HTTP_200_OK)
 
         logger.info(
             "Stored buyer message %s from %s (conversation %s)",

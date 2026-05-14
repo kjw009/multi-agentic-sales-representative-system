@@ -377,8 +377,10 @@ def parse_soap_notification(payload: bytes) -> SoapNotification | None:
         text=extract_message_text(raw_text) if raw_text else None,
         message_id=_findtext(
             body,
-            ".//ebay:MessageID",
             ".//ebay:ExternalMessageID",
+            ".//ebay:MemberMessageExchange/ebay:Question/ebay:MessageID",
+            ".//ebay:Question/ebay:MessageID",
+            ".//ebay:MessageID",
         ),
         item_id=_findtext(body, ".//ebay:ItemID"),
     )

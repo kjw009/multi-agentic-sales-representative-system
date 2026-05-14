@@ -39,6 +39,7 @@ def _soap_envelope(
     signature: str | None = None,
     sender: str = "buyer123",
     message_id: str = "msg-abc-001",
+    external_message_id: str | None = None,
     item_id: str = "ITEM-999",
     body_text: str = "Hi, is this still available?",
     event_name: str = "MyMessageseBayMessage",
@@ -60,6 +61,7 @@ def _soap_envelope(
       <ebl:RecipientUserID>seller42</ebl:RecipientUserID>
       <ebl:Sender>{sender}</ebl:Sender>
       <ebl:MessageID>{message_id}</ebl:MessageID>
+      {f"<ebl:ExternalMessageID>{external_message_id}</ebl:ExternalMessageID>" if external_message_id else ""}
       <ebl:ItemID>{item_id}</ebl:ItemID>
       <ebl:Body>{body_text}</ebl:Body>
     </ebl:GetMyMessagesResponse>
@@ -83,6 +85,15 @@ def test_parse_soap_notification_extracts_all_fields():
     assert notif.text == "Hi, is this still available?"
     assert notif.message_id == "msg-abc-001"
     assert notif.item_id == "ITEM-999"
+
+
+def test_parse_soap_notification_prefers_external_message_id_for_replies():
+    """GetMyMessages MessageID is not replyable via RTQ; ExternalMessageID is."""
+    notif = parse_soap_notification(
+        _soap_envelope(message_id="208312388562", external_message_id="6211873336019")
+    )
+    assert notif is not None
+    assert notif.message_id == "6211873336019"
 
 
 def test_parse_soap_notification_returns_none_for_garbage():
