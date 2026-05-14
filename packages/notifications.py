@@ -1,11 +1,12 @@
 import boto3
+from typing import Any
 
 from packages.config import settings
 
 _sns = None
 
 
-def _client():
+def _client() -> Any:
     global _sns
     if _sns is None:
         _sns = boto3.client("sns", region_name=settings.aws_region)
@@ -15,7 +16,7 @@ def _client():
 def create_seller_topic(seller_id: str, email: str) -> str:
     """Create a per-seller SNS topic, subscribe their email, return topic ARN."""
     name = f"salesrep-seller-{seller_id}"
-    arn = _client().create_topic(Name=name)["TopicArn"]
+    arn: str = _client().create_topic(Name=name)["TopicArn"]
     _client().subscribe(TopicArn=arn, Protocol="email", Endpoint=email)
     return arn
 
