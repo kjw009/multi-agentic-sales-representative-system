@@ -3,8 +3,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.auth import create_access_token, hash_password, verify_password
+from packages.config import settings
 from packages.db.models import Seller
 from packages.db.session import get_session
+from packages.notifications import create_seller_topic
 from packages.schemas.auth import LoginRequest, SignupRequest, TokenResponse
 
 # Create APIRouter for authentication endpoints with /auth prefix
@@ -32,6 +34,11 @@ async def signup(
     session.add(seller)
     await session.commit()
     await session.refresh(seller)
+
+    if settings.sns_enabled:
+        topic_arn = create_seller_topic(str(seller.id), seller.email)
+        seller.sns_topic_arn = topic_arn
+        await session.commit()
 
     # Return access token for the new seller
     return TokenResponse(access_token=create_access_token(seller.id), seller_id=seller.id)

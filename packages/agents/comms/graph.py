@@ -39,7 +39,8 @@ from packages.agents.comms.tools import (
 )
 from packages.agents.nlp.pipeline import analyse_message
 from packages.config import settings
-from packages.db.models import BuyerMessage, Conversation, Item, Listing
+from packages.db.models import BuyerMessage, Conversation, Item, Listing, Seller
+from packages.notifications import notify_seller
 from packages.platform_adapters.ebay.messaging import send_message
 from packages.schemas.nlp import NlpResult
 
@@ -86,12 +87,14 @@ class CommsState(BaseModel):
     seller_id: str
     conversation_id: str
     message_id: str
+    buyer_handle: str = ""
     raw_text: str
     # NLP results (populated by nlp_node)
     nlp_intent: str = ""
     nlp_intent_confidence: float = 0.0
     nlp_sentiment: str = ""
     nlp_sentiment_score: float = 0.0
+    nlp_purchase_likelihood: float = 0.0
     nlp_offer_amounts: list[float] = []
     # Agent results (populated by agent_node)
     draft_reply: str = ""
@@ -113,11 +116,24 @@ async def nlp_node(state: CommsState, config: RunnableConfig) -> dict[str, Any]:
         session=session,
     )
 
+    # SNS notification for hot leads
+    seller = await session.get(Seller, uuid.UUID(state.seller_id))
+    if getattr(nlp_result, "purchase_likelihood", 0.0) > 0.7 and seller and seller.sns_topic_arn:
+        notify_seller(
+            seller.sns_topic_arn,
+            subject="Hot lead on your listing",
+            message=(
+                f"Buyer '{state.buyer_handle}' has a high likelihood of purchasing.\n"
+                f"Check your eBay inbox now."
+            ),
+        )
+
     return {
         "nlp_intent": nlp_result.intent,
         "nlp_intent_confidence": nlp_result.intent_confidence,
         "nlp_sentiment": nlp_result.sentiment,
         "nlp_sentiment_score": nlp_result.sentiment_score,
+        "nlp_purchase_likelihood": getattr(nlp_result, "purchase_likelihood", 0.0),
         "nlp_offer_amounts": nlp_result.offer_amounts,
     }
 
@@ -145,6 +161,7 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
         intent_confidence=state.nlp_intent_confidence,
         sentiment=state.nlp_sentiment,
         sentiment_score=state.nlp_sentiment_score,
+        purchase_likelihood=state.nlp_purchase_likelihood,
         offer_amounts=state.nlp_offer_amounts,
     )
 
@@ -417,6 +434,7 @@ async def run_comms(
                 seller_id=str(seller_id),
                 conversation_id=str(conversation_id),
                 message_id=str(message_id),
+                buyer_handle="Unknown",  # Passed from SQS worker if available
                 raw_text=raw_text,
             ),
             config={"configurable": {"session": session}},

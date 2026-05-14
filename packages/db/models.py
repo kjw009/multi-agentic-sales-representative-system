@@ -97,6 +97,9 @@ class Seller(Base):
     # Soft account enable/disable
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # SNS notification topic (if enabled)
+    sns_topic_arn: Mapped[str | None] = mapped_column(String(2048))
+
     # Auto-managed timestamps (DB-side defaults)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

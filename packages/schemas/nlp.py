@@ -27,6 +27,7 @@ class NlpResult(BaseModel):
     intent_confidence: float
     sentiment: str  # "positive", "negative", "neutral"
     sentiment_score: float
+    purchase_likelihood: float = 0.0
     offer_amounts: list[float] = []
     entities: list[EntityResult] = []
     offer_signals: list[OfferSignalResult] = []

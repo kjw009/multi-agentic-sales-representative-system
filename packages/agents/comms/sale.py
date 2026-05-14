@@ -96,6 +96,17 @@ async def confirm_sale(
 
     await session.flush()
 
+    from packages.db.models import Seller
+    from packages.notifications import notify_seller
+
+    seller = await session.get(Seller, seller_id)
+    if seller and seller.sns_topic_arn:
+        notify_seller(
+            seller.sns_topic_arn,
+            subject="Item sold!",
+            message=f"Your item '{item.name}' sold for £{sale_price:.2f}. Congratulations!",
+        )
+
     logger.info(
         "Sale confirmed: sale_id=%s item=%s price=£%.2f buyer=%s",
         sale.id,
