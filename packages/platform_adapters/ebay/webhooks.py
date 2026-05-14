@@ -1,20 +1,24 @@
 """eBay Event Notification webhook helpers.
 
-Two responsibilities:
-  1. Endpoint-validation challenge (`validate_endpoint_challenge`) — called from
-     the GET handler when eBay sets up the destination.
-  2. Push-notification signature verification (`verify_signature`) — called from
-     the POST handler on every inbound notification.
+eBay actually has two parallel notification systems and we receive both at
+the same `/ebay/webhook` endpoint:
 
-The signature scheme (per eBay's Notification API docs):
-  - `X-EBAY-SIGNATURE` is base64-encoded JSON:
-        {"alg":"ECDSA","kid":"<key-id>","signature":"<base64>","digest":"SHA1"}
-  - The signed bytes are the **raw HTTP body** of the notification.
-  - The verifier algorithm is SHA1-with-ECDSA over the raw body.
-  - The public key is fetched from
-        GET /commerce/notification/v1/public_key/{kid}
-    using an app-level OAuth token (client credentials) and is X.509 PEM
-    encoded — eBay recommends caching it for ~1 hour to avoid rate limits.
+  A. **Notification API (modern, REST/JSON)** — Marketplace Account Deletion
+     and a small set of item topics. Body is JSON, auth is `X-EBAY-SIGNATURE`
+     (ECDSA-over-SHA1 of the raw body, public key fetched per-kid).
+
+  B. **Platform Notifications (legacy, SOAP)** — Buyer messages
+     (`MyMessageseBayMessage`, `MyMessagesM2MMessage`, `AskSellerQuestion`)
+     and similar Trading-API-era events. Body is a SOAP envelope; auth is
+     a `<NotificationSignature>` element inside the SOAP header, computed
+     as `base64(MD5(Timestamp + DevID + AppID + CertID))`.
+
+This module provides:
+
+  1. `validate_endpoint_challenge` — GET-handshake response (shared).
+  2. `verify_signature`            — modern Notification API path.
+  3. `parse_soap_notification` +
+     `verify_soap_signature`       — legacy Platform Notifications path.
 """
 
 from __future__ import annotations
@@ -22,9 +26,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 import httpx
@@ -265,6 +271,114 @@ async def verify_signature(signature_header: str | None, payload: bytes) -> bool
         return False
     except Exception:
         logger.exception("verify_signature: unexpected verifier error")
+        return False
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Legacy SOAP Platform Notifications
+# ---------------------------------------------------------------------------
+
+
+_SOAP_NS = {
+    "soap": "http://schemas.xmlsoap.org/soap/envelope/",
+    "ebay": "urn:ebay:apis:eBLBaseComponents",
+}
+
+
+@dataclass(frozen=True)
+class SoapNotification:
+    """Fields extracted from a Platform Notifications SOAP envelope.
+
+    Each field falls back through the most common element names eBay uses
+    across MyMessageseBayMessage / MyMessagesM2MMessage / AskSellerQuestion.
+    Anything missing comes through as None — callers decide how strict to be.
+    """
+
+    signature: str | None
+    timestamp: str | None
+    event_name: str | None
+    recipient: str | None
+    sender: str | None
+    text: str | None
+    message_id: str | None
+    item_id: str | None
+
+
+def _findtext(element: ET.Element, *paths: str) -> str | None:
+    """Return the first non-empty text from any of the supplied XPath-style
+    paths. Helper because eBay's element names vary by event."""
+    for p in paths:
+        v = element.findtext(p, namespaces=_SOAP_NS)
+        if v is not None and v.strip():
+            return v.strip()
+    return None
+
+
+def parse_soap_notification(payload: bytes) -> SoapNotification | None:
+    """Parse an eBay Platform Notification SOAP envelope.
+
+    Returns None if the body isn't valid SOAP/XML or doesn't have a Body
+    element. Doesn't validate semantically — `verify_soap_signature` is the
+    auth gate.
+    """
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return None
+
+    body = root.find("soap:Body", namespaces=_SOAP_NS)
+    if body is None:
+        return None
+
+    return SoapNotification(
+        signature=_findtext(root, ".//ebay:NotificationSignature"),
+        timestamp=_findtext(body, ".//ebay:Timestamp"),
+        event_name=_findtext(body, ".//ebay:NotificationEventName"),
+        recipient=_findtext(body, ".//ebay:RecipientUserID"),
+        sender=_findtext(body, ".//ebay:Sender", ".//ebay:SenderID"),
+        text=_findtext(body, ".//ebay:Body", ".//ebay:Text"),
+        message_id=_findtext(
+            body,
+            ".//ebay:MessageID",
+            ".//ebay:ExternalMessageID",
+        ),
+        item_id=_findtext(body, ".//ebay:ItemID"),
+    )
+
+
+def verify_soap_signature(notification: SoapNotification) -> bool:
+    """Verify an eBay Platform Notification's `NotificationSignature`.
+
+    Per eBay docs:
+        signature = base64( MD5( Timestamp + DevID + AppID + CertID ) )
+
+    Where Timestamp is the value of the `<Timestamp>` element inside the
+    SOAP body. DevID, AppID and CertID come from the eBay Developer Portal
+    (we map them to `ebay_dev_id`, `ebay_client_id`, `ebay_client_secret`).
+    """
+    if not notification.signature or not notification.timestamp:
+        logger.warning("verify_soap_signature: missing signature or timestamp")
+        return False
+
+    if not (settings.ebay_dev_id and settings.ebay_client_id and settings.ebay_client_secret):
+        logger.error(
+            "verify_soap_signature: ebay_dev_id / ebay_client_id / ebay_client_secret "
+            "must all be set to verify SOAP notifications"
+        )
+        return False
+
+    raw = (
+        notification.timestamp
+        + settings.ebay_dev_id
+        + settings.ebay_client_id
+        + settings.ebay_client_secret
+    )
+    expected = base64.b64encode(hashlib.md5(raw.encode("utf-8")).digest()).decode("utf-8")  # noqa: S324 (eBay-mandated MD5)
+
+    if not hmac.compare_digest(expected, notification.signature):
+        logger.warning("verify_soap_signature: signature mismatch")
         return False
 
     return True
