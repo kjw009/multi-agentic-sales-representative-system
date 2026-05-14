@@ -52,33 +52,38 @@ def _patch_get_seller_token(monkeypatch):
 @pytest.mark.asyncio
 @respx.mock
 async def test_send_message_success():
-    """send_message should send XML via Trading API and parse success response."""
+    """send_message should send AddMemberMessageRTQ XML and parse success response."""
     xml_response = """<?xml version="1.0" encoding="UTF-8"?>
-    <AddMemberMessageAAQToPartnerResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+    <AddMemberMessageRTQResponse xmlns="urn:ebay:apis:eBLBaseComponents">
         <Ack>Success</Ack>
-    </AddMemberMessageAAQToPartnerResponse>"""
+    </AddMemberMessageRTQResponse>"""
 
     respx.post("https://api.ebay.com/ws/api.dll").mock(
         return_value=httpx.Response(200, text=xml_response)
     )
 
     result = await send_message(
-        conversation_id="conv123",
         text="Thanks for your interest!",
         seller_id=uuid.uuid4(),
         session=FakeSession(),
+        parent_message_id="msg999",
+        recipient_id="buyer_test",
+        item_id="123456789",
     )
 
     assert result["status"] == "success"
-    assert result["conversation_id"] == "conv123"
+    assert result["parent_message_id"] == "msg999"
 
-    # Verify the XML was sent correctly
     call = respx.calls[0]
     body = call.request.content.decode("utf-8")
-    assert "AddMemberMessageAAQToPartnerRequest" in body
+    assert "AddMemberMessageRTQRequest" in body
     assert "Thanks for your interest!" in body
-    assert "conv123" in body
+    assert "<ParentMessageID>msg999</ParentMessageID>" in body
+    assert "<RecipientID>buyer_test</RecipientID>" in body
+    assert "<ItemID>123456789</ItemID>" in body
+    assert "MessageType" not in body
     assert "x-ebay-api-call-name" in dict(call.request.headers)
+    assert dict(call.request.headers)["x-ebay-api-call-name"] == "AddMemberMessageRTQ"
 
 
 @pytest.mark.asyncio
@@ -86,13 +91,13 @@ async def test_send_message_success():
 async def test_send_message_failure():
     """send_message should raise RuntimeError on API failure."""
     xml_response = """<?xml version="1.0" encoding="UTF-8"?>
-    <AddMemberMessageAAQToPartnerResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+    <AddMemberMessageRTQResponse xmlns="urn:ebay:apis:eBLBaseComponents">
         <Ack>Failure</Ack>
         <Errors>
             <ShortMessage>Invalid token</ShortMessage>
             <LongMessage>The auth token is invalid.</LongMessage>
         </Errors>
-    </AddMemberMessageAAQToPartnerResponse>"""
+    </AddMemberMessageRTQResponse>"""
 
     respx.post("https://api.ebay.com/ws/api.dll").mock(
         return_value=httpx.Response(200, text=xml_response)
@@ -100,10 +105,12 @@ async def test_send_message_failure():
 
     with pytest.raises(RuntimeError, match="send_message failed"):
         await send_message(
-            conversation_id="conv123",
             text="Test message",
             seller_id=uuid.uuid4(),
             session=FakeSession(),
+            parent_message_id="msg999",
+            recipient_id="buyer_test",
+            item_id="123456789",
         )
 
 

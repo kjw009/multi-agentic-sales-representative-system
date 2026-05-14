@@ -413,12 +413,36 @@ async def action_node(state: CommsState, config: RunnableConfig) -> dict[str, An
     session: AsyncSession = config["configurable"]["session"]
 
     if state.action == "send" and state.draft_reply:
+        buyer_message = await session.scalar(
+            select(BuyerMessage).where(BuyerMessage.id == uuid.UUID(state.message_id))
+        )
+        conversation = await session.get(Conversation, uuid.UUID(state.conversation_id))
+        listing = (
+            await session.get(Listing, conversation.listing_id)
+            if conversation and conversation.listing_id
+            else None
+        )
+        item_external_id = listing.external_id if listing else None
+
+        if not buyer_message or not item_external_id:
+            logger.warning(
+                "[Agent 4] Cannot auto-send for message %s — missing eBay message_id or item_id; saving as draft",
+                state.message_id,
+            )
+            if buyer_message:
+                buyer_message.draft_reply = state.draft_reply
+                buyer_message.requires_approval = True
+                await session.commit()
+            return {"action": "draft", "requires_approval": True}
+
         try:
             await send_message(
-                conversation_id=state.conversation_id,
                 text=state.draft_reply,
                 seller_id=uuid.UUID(state.seller_id),
                 session=session,
+                parent_message_id=buyer_message.message_id,
+                recipient_id=state.buyer_handle or "",
+                item_id=item_external_id,
             )
             logger.info(
                 "[Agent 4] Auto-sent reply for message %s",
@@ -429,13 +453,9 @@ async def action_node(state: CommsState, config: RunnableConfig) -> dict[str, An
                 "[Agent 4] Failed to send reply for message %s — saved as draft",
                 state.message_id,
             )
-            buyer_message = await session.scalar(
-                select(BuyerMessage).where(BuyerMessage.id == uuid.UUID(state.message_id))
-            )
-            if buyer_message:
-                buyer_message.draft_reply = state.draft_reply
-                buyer_message.requires_approval = True
-                await session.commit()
+            buyer_message.draft_reply = state.draft_reply
+            buyer_message.requires_approval = True
+            await session.commit()
             return {"action": "draft", "requires_approval": True}
 
     elif state.action == "draft":

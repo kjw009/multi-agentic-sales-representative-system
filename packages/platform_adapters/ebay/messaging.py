@@ -44,42 +44,47 @@ def _auth_headers(token: SellerToken) -> dict[str, str]:
 
 
 async def send_message(
-    conversation_id: str,
     text: str,
     seller_id: uuid.UUID,
     session: AsyncSession,
+    *,
+    parent_message_id: str,
+    recipient_id: str,
+    item_id: str,
 ) -> dict[str, Any]:
-    """Send an outbound reply to an eBay buyer.
+    """Send an outbound reply to an eBay buyer via Trading API AddMemberMessageRTQ.
 
-    Tries the Trading API AddMemberMessageAAQToPartner first.
+    AddMemberMessageRTQ ("Respond To Question") is the seller-side reply call for
+    AAQ threads. It needs ItemID at the request root and RecipientID + ParentMessageID
+    inside MemberMessage. It does not take MessageType.
     """
     token = await get_seller_token(seller_id, session)
     site_id = _TRADING_API_SITE_ID_MAP.get(settings.ebay_marketplace_id, "3")
 
-    # Build XML body for AddMemberMessageAAQToPartner
     body_text = xml_escape(text[:2000])
 
     xml_body = (
         '<?xml version="1.0" encoding="utf-8"?>'
-        '<AddMemberMessageAAQToPartnerRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
+        '<AddMemberMessageRTQRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
         "<RequesterCredentials>"
         f"<eBayAuthToken>{token.access_token}</eBayAuthToken>"
         "</RequesterCredentials>"
+        f"<ItemID>{xml_escape(item_id)}</ItemID>"
         "<MemberMessage>"
         "<Body>"
         f"<![CDATA[{body_text}]]>"
         "</Body>"
-        f"<ParentMessageID>{xml_escape(conversation_id)}</ParentMessageID>"
-        "<MessageType>ContactEBayMember</MessageType>"
+        f"<ParentMessageID>{xml_escape(parent_message_id)}</ParentMessageID>"
+        f"<RecipientID>{xml_escape(recipient_id)}</RecipientID>"
         "</MemberMessage>"
-        "</AddMemberMessageAAQToPartnerRequest>"
+        "</AddMemberMessageRTQRequest>"
     )
 
     trading_url = f"{_base()}/ws/api.dll"
     headers = {
         "X-EBAY-API-SITEID": site_id,
         "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
-        "X-EBAY-API-CALL-NAME": "AddMemberMessageAAQToPartner",
+        "X-EBAY-API-CALL-NAME": "AddMemberMessageRTQ",
         "X-EBAY-API-IAF-TOKEN": token.access_token,
         "Content-Type": "text/xml;charset=utf-8",
     }
@@ -89,7 +94,6 @@ async def send_message(
 
     logger.info("Trading API send_message response: %s %s", r.status_code, r.text[:500])
 
-    # Parse XML response
     root = ET.fromstring(r.text)
     ns = {"ebay": "urn:ebay:apis:eBLBaseComponents"}
     ack = root.findtext("ebay:Ack", namespaces=ns)
@@ -105,7 +109,7 @@ async def send_message(
         logger.error("Trading API send_message failed: %s", error_msg)
         raise RuntimeError(f"eBay send_message failed: {error_msg}")
 
-    return {"status": "success", "conversation_id": conversation_id}
+    return {"status": "success", "parent_message_id": parent_message_id}
 
 
 async def get_conversation(

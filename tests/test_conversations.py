@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 
 from apps.api.main import app
 from packages.config import settings
-from packages.db.models import BuyerMessage, Conversation, Seller
+from packages.db.models import BuyerMessage, Conversation, Item, Listing, Seller
 from packages.db.session import SessionLocal
 
 
@@ -43,8 +43,31 @@ async def test_approve_draft_endpoint():
 
         app.dependency_overrides[get_current_seller] = lambda: test_seller
 
-        # Create test data
-        conversation = Conversation(seller_id=test_seller.id, buyer_handle="test_buyer")
+        # Create test data — listing + conversation linked to it so the
+        # approve flow has the eBay ItemID + recipient handle it needs.
+        item = Item(
+            seller_id=test_seller.id,
+            name="Test item",
+            category="electronics",
+            condition="used",
+        )
+        session.add(item)
+        await session.flush()
+
+        listing = Listing(
+            seller_id=test_seller.id,
+            item_id=item.id,
+            platform="ebay",
+            external_id="EBAY-ITEM-123",
+        )
+        session.add(listing)
+        await session.flush()
+
+        conversation = Conversation(
+            seller_id=test_seller.id,
+            buyer_handle="test_buyer",
+            listing_id=listing.id,
+        )
         session.add(conversation)
         await session.flush()
 
@@ -67,7 +90,7 @@ async def test_approve_draft_endpoint():
         ) as mock_send_message:
             mock_send_message.return_value = {
                 "status": "success",
-                "conversation_id": str(conversation.id),
+                "parent_message_id": message_id,
             }
 
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -77,10 +100,12 @@ async def test_approve_draft_endpoint():
             assert response.json() == {"status": "sent"}
 
             mock_send_message.assert_called_once_with(
-                conversation_id=str(conversation.id),
                 text="No, the price is firm.",
                 seller_id=test_seller.id,
                 session=ANY,
+                parent_message_id=message_id,
+                recipient_id="test_buyer",
+                item_id="EBAY-ITEM-123",
             )
 
         # Verify db state updated

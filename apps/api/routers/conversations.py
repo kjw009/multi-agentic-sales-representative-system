@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -8,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from apps.api.deps import get_current_seller
-from packages.db.models import BuyerMessage, Seller
+from packages.db.models import BuyerMessage, Listing, Seller
 from packages.db.session import get_session
 from packages.platform_adapters.ebay.messaging import send_message
 
@@ -53,20 +54,49 @@ async def get_drafts(
     ]
 
 
+async def _load_reply_context(
+    message_id: str,
+    seller_id: uuid.UUID,
+    session: AsyncSession,
+) -> tuple[BuyerMessage, str, str]:
+    """Look up the buyer message and resolve the (recipient_id, item_id) eBay needs."""
+    buyer_message = await session.scalar(
+        select(BuyerMessage)
+        .options(joinedload(BuyerMessage.conversation))
+        .where(
+            BuyerMessage.message_id == message_id,
+            BuyerMessage.seller_id == seller_id,
+        )
+    )
+    if not buyer_message:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+    conversation = buyer_message.conversation
+    if not conversation or not conversation.listing_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot reply: conversation is not linked to a listing (missing eBay ItemID)",
+        )
+
+    listing = await session.get(Listing, conversation.listing_id)
+    if not listing or not listing.external_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot reply: listing has no eBay ItemID",
+        )
+
+    return buyer_message, conversation.buyer_handle, listing.external_id
+
+
 @router.post("/{message_id}/approve")
 async def approve_draft(
     message_id: str,
     seller: Seller = Depends(get_current_seller),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
-    buyer_message = await session.scalar(
-        select(BuyerMessage).where(
-            BuyerMessage.message_id == message_id,
-            BuyerMessage.seller_id == seller.id,
-        )
+    buyer_message, recipient_id, item_id = await _load_reply_context(
+        message_id, seller.id, session
     )
-    if not buyer_message:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
     draft_reply = buyer_message.draft_reply
     if not draft_reply:
@@ -76,10 +106,12 @@ async def approve_draft(
 
     try:
         await send_message(
-            conversation_id=str(buyer_message.conversation_id),
             text=draft_reply,
             seller_id=seller.id,
             session=session,
+            parent_message_id=buyer_message.message_id,
+            recipient_id=recipient_id,
+            item_id=item_id,
         )
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
@@ -98,28 +130,25 @@ async def edit_draft(
     seller: Seller = Depends(get_current_seller),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
-    buyer_message = await session.scalar(
-        select(BuyerMessage).where(
-            BuyerMessage.message_id == message_id,
-            BuyerMessage.seller_id == seller.id,
-        )
-    )
-    if not buyer_message:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
-
     if not body.text.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Draft reply cannot be empty"
         )
 
+    buyer_message, recipient_id, item_id = await _load_reply_context(
+        message_id, seller.id, session
+    )
+
     buyer_message.draft_reply = body.text
 
     try:
         await send_message(
-            conversation_id=str(buyer_message.conversation_id),
             text=body.text,
             seller_id=seller.id,
             session=session,
+            parent_message_id=buyer_message.message_id,
+            recipient_id=recipient_id,
+            item_id=item_id,
         )
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
