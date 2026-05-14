@@ -14,6 +14,7 @@ from packages.config import settings
 from packages.crypto import encrypt_token
 from packages.db.models import EbayOAuthState, Platform, PlatformCredential, Seller
 from packages.db.session import get_session
+from packages.platform_adapters.ebay.notifications import subscribe_messages
 from packages.platform_adapters.ebay.oauth import (
     build_authorization_url,
     exchange_code,
@@ -133,6 +134,22 @@ async def ebay_callback(
     await session.commit()
 
     logger.info("eBay OAuth tokens saved for seller %s", seller_id)
+
+    # Auto-subscribe the seller to buyer-message notifications. The
+    # application-level destination is configured once in the eBay Developer
+    # Portal; this call wires the per-user event preferences. Failures are
+    # logged but don't block OAuth — the seller can still list/browse, and
+    # we can backfill via scripts/subscribe_existing_sellers.py.
+    try:
+        subscribed = await subscribe_messages(access_token)
+        if not subscribed:
+            logger.warning(
+                "Failed to subscribe seller %s to eBay notifications — buyer "
+                "messages will not arrive until backfilled",
+                seller_id,
+            )
+    except Exception:
+        logger.exception("subscribe_messages raised for seller %s", seller_id)
 
     # Redirect back to the frontend chat page with success indicator
     return RedirectResponse(url=f"{_frontend_chat()}?ebay=connected", status_code=302)

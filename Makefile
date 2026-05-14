@@ -1,4 +1,4 @@
-.PHONY: help up down logs ps install install-ml install-nlp test evals evals-sync fmt lint mypy ci migrate migration shell-api shell-db worker
+.PHONY: help up down logs ps install install-ml install-nlp test evals evals-sync fmt lint mypy ci migrate migration shell-api shell-db worker subscribe-messages
 
 help:
 	@echo "Stack:"
@@ -87,3 +87,10 @@ shell-api:
 
 shell-db:
 	docker compose exec postgres psql -U $${POSTGRES_USER:-salesrep} -d $${POSTGRES_DB:-salesrep}
+
+# Backfill: subscribe every existing eBay-connected seller to buyer-message
+# notifications (Trading API SetNotificationPreferences). New sellers are
+# auto-subscribed on OAuth callback — only re-run for sellers connected
+# before this wiring landed.
+subscribe-messages:
+	docker compose exec api uv run python -m packages.platform_adapters.ebay.subscribe_cli
