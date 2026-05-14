@@ -16,7 +16,10 @@ from sqlalchemy import select
 from packages.config import settings
 from packages.db.models import BuyerMessage, Conversation, Listing, MessageDirection
 from packages.db.session import SessionLocal
-from packages.platform_adapters.ebay.webhooks import validate_endpoint_challenge
+from packages.platform_adapters.ebay.webhooks import (
+    validate_endpoint_challenge,
+    verify_signature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,25 +41,18 @@ async def ebay_webhook_challenge(challenge_code: str) -> Response:
         return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def _validate_hmac(signature_header: str | None, payload: bytes) -> bool:
-    """Validate the HMAC signature from eBay.
+async def _validate_signature(signature_header: str | None, payload: bytes) -> bool:
+    """Validate the inbound webhook's `X-EBAY-SIGNATURE`.
 
-    Returns True if the signature is valid or HMAC validation is skipped.
+    Real SHA1-with-ECDSA verification against the public key fetched from
+    eBay's Notification API (cached for ~1 h). Bypassed only when
+    `SKIP_WEBHOOK_HMAC=true` — keep that off in production.
     """
     if settings.skip_webhook_hmac:
-        logger.debug("HMAC validation skipped (SKIP_WEBHOOK_HMAC=true)")
+        logger.debug("Signature validation skipped (SKIP_WEBHOOK_HMAC=true)")
         return True
 
-    if not signature_header:
-        logger.warning("No X-EBAY-SIGNATURE header present")
-        return False
-
-    # eBay's signature validation is complex (involves fetching their public key).
-    # For now, we validate the presence of the header. Full ECDSA validation
-    # can be added when moving to production.
-    # TODO: Implement full eBay ECDSA signature validation
-    logger.info("HMAC header present: %s", signature_header[:50])
-    return True
+    return await verify_signature(signature_header, payload)
 
 
 @router.post("/webhook")
@@ -77,10 +73,10 @@ async def ebay_webhook_receive(
     payload = await request.body()
     signature_header = request.headers.get("X-EBAY-SIGNATURE")
 
-    logger.info("Received eBay webhook notification. Signature: %s", signature_header)
+    logger.info("Received eBay webhook notification. Signature header present: %s", bool(signature_header))
 
-    # --- 1. Validate HMAC ---
-    if not _validate_hmac(signature_header, payload):
+    # --- 1. Validate signature ---
+    if not await _validate_signature(signature_header, payload):
         return Response(status_code=status.HTTP_401_UNAUTHORIZED)
 
     # --- 2. Parse payload ---
