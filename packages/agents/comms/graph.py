@@ -31,6 +31,7 @@ from openai.types.chat.chat_completion_message_function_tool_call import (
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from packages.agents.comms.tools import (
     TOOL_DEFINITIONS,
@@ -197,6 +198,7 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
     # --- Load conversation history for context ---
     history_msgs = await session.scalars(
         select(BuyerMessage)
+        .options(selectinload(BuyerMessage.nlp_annotation))
         .where(BuyerMessage.conversation_id == conversation_id)
         .order_by(BuyerMessage.received_at)
         .limit(20)
