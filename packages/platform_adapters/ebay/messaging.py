@@ -54,18 +54,24 @@ async def send_message(
 ) -> dict[str, Any]:
     """Send an outbound reply to an eBay buyer via Trading API AddMemberMessageAAQToPartner.
 
-    AddMemberMessageAAQToPartner works for both AskSellerQuestion (ASQ) and
-    ContactEBayMember-style threads. AddMemberMessageRTQ would be cleaner for
-    ASQ but errors with 17453 ("Invalid Parent Message Id") for any non-ASQ
-    parent, which is most of what we receive.
+    Works for both AskSellerQuestion (ASQ) and ContactEBayMember-style threads.
+    AddMemberMessageRTQ would be cleaner for ASQ specifically, but errors with
+    17453 ("Invalid Parent Message Id") for any non-ASQ parent — which covers
+    most of what we actually receive.
 
     Required fields per eBay:
       - ItemID at the request root
+      - MemberMessage.Subject
       - MemberMessage.Body
       - MemberMessage.QuestionType
-      - MemberMessage.MessageType
       - MemberMessage.RecipientID
     ParentMessageID is optional (threads the reply if supplied).
+
+    Note: MemberMessage.MessageType is rejected by this call ("Input data for
+    tag <MemberMessage.MessageType> is invalid or missing", errorId 37) even
+    for values that are valid in the global MessageTypeCodeType enum — eBay's
+    validator restricts which values are allowed per-call, and AAQToPartner
+    doesn't accept any value reliably. Omit it.
     """
     token = await get_seller_token(seller_id, session)
     site_id = _TRADING_API_SITE_ID_MAP.get(settings.ebay_marketplace_id, "3")
@@ -86,12 +92,12 @@ async def send_message(
         "</RequesterCredentials>"
         f"<ItemID>{xml_escape(item_id)}</ItemID>"
         "<MemberMessage>"
+        "<Subject>Re: your message</Subject>"
         "<Body>"
         f"<![CDATA[{body_text}]]>"
         "</Body>"
         f"{parent_xml}"
         "<QuestionType>General</QuestionType>"
-        "<MessageType>ContactEBayMember</MessageType>"
         f"<RecipientID>{xml_escape(recipient_id)}</RecipientID>"
         "</MemberMessage>"
         "</AddMemberMessageAAQToPartnerRequest>"

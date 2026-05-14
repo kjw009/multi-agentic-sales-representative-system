@@ -82,7 +82,9 @@ async def test_send_message_success():
     assert "<RecipientID>buyer_test</RecipientID>" in body
     assert "<ItemID>123456789</ItemID>" in body
     assert "<QuestionType>General</QuestionType>" in body
-    assert "<MessageType>ContactEBayMember</MessageType>" in body
+    assert "<Subject>" in body
+    # MessageType must NOT be sent — eBay rejects every enum value for this call.
+    assert "<MessageType>" not in body
     assert dict(call.request.headers)["x-ebay-api-call-name"] == "AddMemberMessageAAQToPartner"
 
 
