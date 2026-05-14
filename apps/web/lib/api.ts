@@ -91,6 +91,31 @@ export interface DraftMessage {
   listing_id: string | null;
 }
 
+export type AutonomyLevel = "draft" | "auto_low_risk" | "full_auto";
+
+export interface SellerSettings {
+  autonomy_level: AutonomyLevel;
+  stale_threshold_days: number;
+  max_reprice_count: number;
+}
+
+export interface RepriceEvent {
+  id: string;
+  listing_id: string;
+  item_name: string;
+  listing_url: string | null;
+  old_price: number;
+  new_price: number;
+  repriced_at: string;
+}
+
+export interface DraftStats {
+  pending: number;
+  approved: number;
+  edited: number;
+  edit_rate: number;
+}
+
 export const api = {
   signup: (email: string, password: string) =>
     request<TokenResponse>("/auth/signup", {
@@ -151,5 +176,18 @@ export const api = {
     request<{ status: string }>(`/conversations/${messageId}/dismiss`, {
       method: "POST",
     }),
+
+  getSettings: () => request<SellerSettings>("/settings/seller"),
+
+  updateSettings: (patch: Partial<SellerSettings>) =>
+    request<SellerSettings>("/settings/seller", {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  getRepriceHistory: () =>
+    request<RepriceEvent[]>("/listings/reprice-history"),
+
+  getDraftStats: () => request<DraftStats>("/conversations/stats"),
 };
 

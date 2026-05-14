@@ -11,9 +11,11 @@ from apps.api.routers import (
     images,
     intake,
     internal,
+    listings,
     pages,
     webhooks,
 )
+from apps.api.routers import settings as settings_router
 from packages.config import configure_tracing, settings
 
 # Surface app loggers (pricing/publisher/intake) at INFO so Round/Browse/etc.
@@ -57,5 +59,7 @@ app.include_router(intake.router)  # Handles the "Chat" and Image uploads
 app.include_router(conversations.router)  # Handles the draft approval inbox
 app.include_router(images.router)  # Handles image storage/retrieval
 app.include_router(internal.router)  # Backend administrative tools
+app.include_router(listings.router)  # Listing-level endpoints (reprice history)
+app.include_router(settings_router.router)  # Seller autonomy + stale-reprice settings
 app.include_router(pages.router)  # Serves the static Frontend Files (Next.js Build)
 app.include_router(webhooks.router)  # Listens for eBay Events

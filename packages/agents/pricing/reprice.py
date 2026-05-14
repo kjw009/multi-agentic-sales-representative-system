@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from packages.agents.pricing.agent import run as run_pricing
-from packages.db.models import Item, Listing, ListingStatus, Seller
+from packages.db.models import Item, Listing, ListingStatus, RepriceEvent, Seller
 from packages.notifications import notify_seller
 from packages.platform_adapters.ebay.sell import get_seller_token, update_offer_price
 
@@ -124,6 +124,15 @@ async def reprice_listing(
     listing.posted_price = new_price
     listing.last_repriced_at = datetime.now(UTC)
     listing.reprice_count += 1
+
+    session.add(
+        RepriceEvent(
+            listing_id=listing.id,
+            seller_id=seller_id,
+            old_price=old_price,
+            new_price=new_price,
+        )
+    )
     await session.commit()
 
     logger.info(
