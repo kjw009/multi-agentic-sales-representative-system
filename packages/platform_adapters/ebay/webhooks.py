@@ -375,7 +375,7 @@ def verify_soap_signature(notification: SoapNotification) -> bool:
         + settings.ebay_client_id
         + settings.ebay_client_secret
     )
-    expected = base64.b64encode(hashlib.md5(raw.encode("utf-8")).digest()).decode("utf-8")  # noqa: S324 (eBay-mandated MD5)
+    expected = base64.b64encode(hashlib.md5(raw.encode("utf-8")).digest()).decode("utf-8")
 
     if not hmac.compare_digest(expected, notification.signature):
         logger.warning("verify_soap_signature: signature mismatch")
