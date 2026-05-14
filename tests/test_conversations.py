@@ -1,16 +1,17 @@
+import socket
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import ANY, AsyncMock, patch
-import socket
 from urllib.parse import urlparse
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from apps.api.main import app
+from packages.config import settings
 from packages.db.models import BuyerMessage, Conversation, Seller
 from packages.db.session import SessionLocal
-from packages.config import settings
+
 
 def _postgres_reachable() -> bool:
     """Quick TCP probe so we can skip these tests when Postgres isn't running."""
