@@ -92,6 +92,14 @@ def handle_retry_buyer_message(clarification_request_id: str) -> None:
     asyncio.run(_run())
 
 
+@register("reprice_listing")
+def handle_reprice_listing(seller_id: str, listing_id: str) -> None:
+    """Phase 5 stale-listing reprice — Agent 2 → eBay update_offer_price."""
+    from packages.agents.pricing.reprice import reprice_listing_task
+
+    asyncio.run(reprice_listing_task(uuid.UUID(seller_id), uuid.UUID(listing_id)))
+
+
 # ---------------------------------------------------------------------------
 # Worker loop
 # ---------------------------------------------------------------------------
