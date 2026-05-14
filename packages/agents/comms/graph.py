@@ -40,15 +40,40 @@ from packages.agents.comms.tools import (
 )
 from packages.agents.nlp.pipeline import analyse_message
 from packages.config import settings
-from packages.db.models import BuyerMessage, Conversation, Item, Listing, Seller
+from packages.db.models import AutonomyLevel, BuyerMessage, Conversation, Item, Listing, Seller
 from packages.notifications import notify_seller
 from packages.platform_adapters.ebay.messaging import send_message
 from packages.schemas.nlp import NlpResult
 
 logger = logging.getLogger(__name__)
 
-# Intents that are considered "low risk" — auto-send the reply
-_AUTO_SEND_INTENTS = {"question", "greeting", "spam", "decline"}
+# Risk classification of each Agent 4 tool. Drives auto-send eligibility.
+#  - LOW_RISK: bounded informational/decline replies — safe to auto-send
+#  - APPROVAL_ONLY: side-effects the seller must confirm (a sale, an escalation)
+#  - everything else (counter_offer): higher-risk negotiation step
+_LOW_RISK_TOOLS = {"send_info", "decline_offer"}
+_APPROVAL_ONLY_TOOLS = {"accept_offer", "ask_seller"}
+
+
+def _resolve_requires_approval(autonomy: AutonomyLevel, tool_name: str | None) -> bool:
+    """Single source of truth for whether a reply needs seller approval.
+
+    `tool_name` may be None when the LLM responded with plain text (no tool
+    call); we treat that as a low-risk informational reply.
+    """
+    effective_tool = tool_name or "send_info"
+
+    if effective_tool in _APPROVAL_ONLY_TOOLS:
+        return True
+
+    if autonomy == AutonomyLevel.draft:
+        return True
+
+    if autonomy == AutonomyLevel.auto_low_risk:
+        return effective_tool not in _LOW_RISK_TOOLS
+
+    # full_auto: anything not in APPROVAL_ONLY_TOOLS is auto-sent
+    return False
 
 # System prompt template — NOTE: walk_away_price is NEVER included here
 _SYSTEM_PROMPT = """You are a professional sales assistant managing buyer inquiries on eBay.
@@ -181,6 +206,11 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
             "requires_approval": True,
         }
 
+    # Load the seller to determine autonomy level. Default to the safest
+    # behaviour (draft) if the seller row is somehow missing.
+    seller = await session.get(Seller, seller_id)
+    autonomy: AutonomyLevel = seller.autonomy_level if seller else AutonomyLevel.draft
+
     listing = None
     item = None
     listed_price = 0.0
@@ -268,8 +298,8 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
         ]
         if not function_tool_calls:
             draft_reply = msg.content or ""
-            action = "send" if nlp_result.intent in _AUTO_SEND_INTENTS else "draft"
-            requires_approval = nlp_result.intent not in _AUTO_SEND_INTENTS
+            requires_approval = _resolve_requires_approval(autonomy, tool_name=None)
+            action = "draft" if requires_approval else "send"
             break
 
         # Add assistant message (with tool_calls) to history
@@ -334,29 +364,19 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
                 }
             )
 
-            # Determine action based on which tool was called
-            if tool_name == "send_info":
-                action = "send" if nlp_result.intent in _AUTO_SEND_INTENTS else "draft"
-                requires_approval = nlp_result.intent not in _AUTO_SEND_INTENTS
-                terminal_reply = tool_input.get("text", result_text)
-            elif tool_name == "accept_offer":
-                action = "draft"  # Acceptance always needs seller approval
-                requires_approval = True
+            # Action decision: autonomy level + tool risk class is the only
+            # source of truth (no intent-based override).
+            requires_approval = _resolve_requires_approval(autonomy, tool_name)
+            action = "draft" if requires_approval else "send"
+
+            if tool_name in {"accept_offer", "counter_offer"}:
                 offer_amount = tool_input.get("amount")
-                terminal_reply = tool_input.get("text", result_text)
-            elif tool_name == "counter_offer":
-                action = "draft"
-                requires_approval = True
-                offer_amount = tool_input.get("amount")
-                terminal_reply = tool_input.get("text", result_text)
-            elif tool_name == "decline_offer":
-                action = "send"  # Auto-send declines
-                requires_approval = False
                 terminal_reply = tool_input.get("text", result_text)
             elif tool_name == "ask_seller":
-                action = "draft"
-                requires_approval = True
                 terminal_reply = f"[ESCALATED TO SELLER] {tool_input.get('question', '')}"
+            else:
+                # send_info, decline_offer, or any unknown tool
+                terminal_reply = tool_input.get("text", result_text)
 
         if terminal_reply is not None:
             draft_reply = terminal_reply
