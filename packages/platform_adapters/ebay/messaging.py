@@ -52,20 +52,35 @@ async def send_message(
     recipient_id: str,
     item_id: str,
 ) -> dict[str, Any]:
-    """Send an outbound reply to an eBay buyer via Trading API AddMemberMessageRTQ.
+    """Send an outbound reply to an eBay buyer via Trading API AddMemberMessageAAQToPartner.
 
-    AddMemberMessageRTQ ("Respond To Question") is the seller-side reply call for
-    AAQ threads. It needs ItemID at the request root and RecipientID + ParentMessageID
-    inside MemberMessage. It does not take MessageType.
+    AddMemberMessageAAQToPartner works for both AskSellerQuestion (ASQ) and
+    ContactEBayMember-style threads. AddMemberMessageRTQ would be cleaner for
+    ASQ but errors with 17453 ("Invalid Parent Message Id") for any non-ASQ
+    parent, which is most of what we receive.
+
+    Required fields per eBay:
+      - ItemID at the request root
+      - MemberMessage.Body
+      - MemberMessage.QuestionType
+      - MemberMessage.MessageType
+      - MemberMessage.RecipientID
+    ParentMessageID is optional (threads the reply if supplied).
     """
     token = await get_seller_token(seller_id, session)
     site_id = _TRADING_API_SITE_ID_MAP.get(settings.ebay_marketplace_id, "3")
 
     body_text = xml_escape(text[:2000])
 
+    parent_xml = (
+        f"<ParentMessageID>{xml_escape(parent_message_id)}</ParentMessageID>"
+        if parent_message_id
+        else ""
+    )
+
     xml_body = (
         '<?xml version="1.0" encoding="utf-8"?>'
-        '<AddMemberMessageRTQRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
+        '<AddMemberMessageAAQToPartnerRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
         "<RequesterCredentials>"
         f"<eBayAuthToken>{token.access_token}</eBayAuthToken>"
         "</RequesterCredentials>"
@@ -74,17 +89,19 @@ async def send_message(
         "<Body>"
         f"<![CDATA[{body_text}]]>"
         "</Body>"
-        f"<ParentMessageID>{xml_escape(parent_message_id)}</ParentMessageID>"
+        f"{parent_xml}"
+        "<QuestionType>General</QuestionType>"
+        "<MessageType>ContactEBayMember</MessageType>"
         f"<RecipientID>{xml_escape(recipient_id)}</RecipientID>"
         "</MemberMessage>"
-        "</AddMemberMessageRTQRequest>"
+        "</AddMemberMessageAAQToPartnerRequest>"
     )
 
     trading_url = f"{_base()}/ws/api.dll"
     headers = {
         "X-EBAY-API-SITEID": site_id,
         "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
-        "X-EBAY-API-CALL-NAME": "AddMemberMessageRTQ",
+        "X-EBAY-API-CALL-NAME": "AddMemberMessageAAQToPartner",
         "X-EBAY-API-IAF-TOKEN": token.access_token,
         "Content-Type": "text/xml;charset=utf-8",
     }

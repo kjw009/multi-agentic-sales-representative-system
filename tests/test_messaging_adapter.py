@@ -52,11 +52,11 @@ def _patch_get_seller_token(monkeypatch):
 @pytest.mark.asyncio
 @respx.mock
 async def test_send_message_success():
-    """send_message should send AddMemberMessageRTQ XML and parse success response."""
+    """send_message should send AddMemberMessageAAQToPartner XML with all required fields."""
     xml_response = """<?xml version="1.0" encoding="UTF-8"?>
-    <AddMemberMessageRTQResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+    <AddMemberMessageAAQToPartnerResponse xmlns="urn:ebay:apis:eBLBaseComponents">
         <Ack>Success</Ack>
-    </AddMemberMessageRTQResponse>"""
+    </AddMemberMessageAAQToPartnerResponse>"""
 
     respx.post("https://api.ebay.com/ws/api.dll").mock(
         return_value=httpx.Response(200, text=xml_response)
@@ -76,14 +76,40 @@ async def test_send_message_success():
 
     call = respx.calls[0]
     body = call.request.content.decode("utf-8")
-    assert "AddMemberMessageRTQRequest" in body
+    assert "AddMemberMessageAAQToPartnerRequest" in body
     assert "Thanks for your interest!" in body
     assert "<ParentMessageID>msg999</ParentMessageID>" in body
     assert "<RecipientID>buyer_test</RecipientID>" in body
     assert "<ItemID>123456789</ItemID>" in body
-    assert "MessageType" not in body
-    assert "x-ebay-api-call-name" in dict(call.request.headers)
-    assert dict(call.request.headers)["x-ebay-api-call-name"] == "AddMemberMessageRTQ"
+    assert "<QuestionType>General</QuestionType>" in body
+    assert "<MessageType>ContactEBayMember</MessageType>" in body
+    assert dict(call.request.headers)["x-ebay-api-call-name"] == "AddMemberMessageAAQToPartner"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_send_message_omits_parent_message_id_when_blank():
+    """ParentMessageID is optional — when caller passes empty string, don't emit the tag."""
+    xml_response = """<?xml version="1.0" encoding="UTF-8"?>
+    <AddMemberMessageAAQToPartnerResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+        <Ack>Success</Ack>
+    </AddMemberMessageAAQToPartnerResponse>"""
+
+    respx.post("https://api.ebay.com/ws/api.dll").mock(
+        return_value=httpx.Response(200, text=xml_response)
+    )
+
+    await send_message(
+        text="hi",
+        seller_id=uuid.uuid4(),
+        session=FakeSession(),
+        parent_message_id="",
+        recipient_id="buyer_test",
+        item_id="123456789",
+    )
+
+    body = respx.calls[0].request.content.decode("utf-8")
+    assert "ParentMessageID" not in body
 
 
 @pytest.mark.asyncio
@@ -91,13 +117,13 @@ async def test_send_message_success():
 async def test_send_message_failure():
     """send_message should raise RuntimeError on API failure."""
     xml_response = """<?xml version="1.0" encoding="UTF-8"?>
-    <AddMemberMessageRTQResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+    <AddMemberMessageAAQToPartnerResponse xmlns="urn:ebay:apis:eBLBaseComponents">
         <Ack>Failure</Ack>
         <Errors>
             <ShortMessage>Invalid token</ShortMessage>
             <LongMessage>The auth token is invalid.</LongMessage>
         </Errors>
-    </AddMemberMessageRTQResponse>"""
+    </AddMemberMessageAAQToPartnerResponse>"""
 
     respx.post("https://api.ebay.com/ws/api.dll").mock(
         return_value=httpx.Response(200, text=xml_response)
