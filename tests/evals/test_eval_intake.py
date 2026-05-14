@@ -6,7 +6,6 @@ from langsmith import Client, aevaluate
 from packages.agents.intake.graph import IntakeState, intake_node
 from packages.config import settings
 from packages.db.models import Item, ItemCondition
-
 from tests.evals._helpers import collect_scores, mean
 
 
