@@ -396,6 +396,13 @@ async def action_node(state: CommsState, config: RunnableConfig) -> dict[str, An
                 "[Agent 4] Failed to send reply for message %s — saved as draft",
                 state.message_id,
             )
+            buyer_message = await session.scalar(
+                select(BuyerMessage).where(BuyerMessage.message_id == state.message_id)
+            )
+            if buyer_message:
+                buyer_message.draft_reply = state.draft_reply
+                buyer_message.requires_approval = True
+                await session.commit()
             return {"action": "draft", "requires_approval": True}
 
     elif state.action == "draft":
