@@ -38,21 +38,27 @@ async def confirm_sale(
     buyer_handle: str,
     seller_id: uuid.UUID,
     session: AsyncSession,
+    walk_away_price: float = 0.0,
 ) -> Sale:
     """Atomically confirm a sale using SELECT FOR UPDATE.
 
     Steps:
-      1. Lock the item row (prevents concurrent sale confirmation).
-      2. Verify the item is not already sold.
-      3. Update item status to 'sold'.
-      4. Create a Sale record.
-      5. Close the negotiation if one exists.
-      6. Mark the listing as ended.
+      1. Enforce walk_away_price floor before any DB writes.
+      2. Lock the item row (prevents concurrent sale confirmation).
+      3. Verify the item is not already sold.
+      4. Update item status to 'sold'.
+      5. Create a Sale record.
+      6. Close the negotiation if one exists.
+      7. Mark the listing as ended.
 
     Raises:
         AlreadySoldError: If the item is already sold.
-        ValueError: If the item is not found.
+        ValueError: If the item is not found or sale_price is below the floor.
     """
+    if walk_away_price > 0 and sale_price < walk_away_price:
+        raise ValueError(
+            f"Sale price {sale_price} is below the minimum acceptable price. Sale rejected."
+        )
     # 1. Lock the item row
     item = await session.scalar(
         select(Item).where(Item.id == item_id, Item.seller_id == seller_id).with_for_update()
