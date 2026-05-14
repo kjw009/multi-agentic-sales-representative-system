@@ -17,6 +17,7 @@ from packages.config import settings
 from packages.db.models import BuyerMessage, Conversation, Listing, MessageDirection
 from packages.db.session import SessionLocal
 from packages.platform_adapters.ebay.webhooks import (
+    extract_message_text,
     parse_soap_notification,
     validate_endpoint_challenge,
     verify_signature,
@@ -130,7 +131,7 @@ async def ebay_webhook_receive(
             or notification_data.get("SenderID")
             or "unknown_buyer"
         )
-        raw_text = (
+        raw_text = extract_message_text(
             notification_data.get("text")
             or notification_data.get("body")
             or notification_data.get("Body")

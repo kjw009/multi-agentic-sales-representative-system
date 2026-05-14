@@ -27,8 +27,10 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import html
 import json
 import logging
+import re
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -316,6 +318,39 @@ def _findtext(element: ET.Element, *paths: str) -> str | None:
     return None
 
 
+# eBay's Platform Notifications sometimes deliver the buyer's reply as the
+# fully-rendered HTML email body (CSS, nav chrome, message history, the lot)
+# instead of plain text. The new message is reliably inside
+# `<div id="UserInputtedText">…</div>`; prior messages are numbered
+# (UserInputtedText1, UserInputtedText2…). We pull the unnumbered one.
+_USER_INPUT_DIV_RE = re.compile(
+    r'<div\s+id="UserInputtedText"\s*>(.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+_TAG_RE = re.compile(r"<[^>]+>")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def extract_message_text(raw: str) -> str:
+    """Return the buyer's actual message, stripping eBay email HTML if present.
+
+    Plain-text payloads pass through unchanged.
+    """
+    if not raw or "<" not in raw:
+        return raw
+
+    match = _USER_INPUT_DIV_RE.search(raw)
+    candidate = match.group(1) if match else raw
+
+    # Replace <br> with newlines so multi-line messages stay readable, then
+    # strip all remaining tags and unescape entities.
+    candidate = re.sub(r"<br\s*/?>", "\n", candidate, flags=re.IGNORECASE)
+    candidate = _TAG_RE.sub("", candidate)
+    candidate = html.unescape(candidate)
+    candidate = _WHITESPACE_RE.sub(" ", candidate).strip()
+    return candidate
+
+
 def parse_soap_notification(payload: bytes) -> SoapNotification | None:
     """Parse an eBay Platform Notification SOAP envelope.
 
@@ -332,13 +367,14 @@ def parse_soap_notification(payload: bytes) -> SoapNotification | None:
     if body is None:
         return None
 
+    raw_text = _findtext(body, ".//ebay:Body", ".//ebay:Text")
     return SoapNotification(
         signature=_findtext(root, ".//ebay:NotificationSignature"),
         timestamp=_findtext(body, ".//ebay:Timestamp"),
         event_name=_findtext(body, ".//ebay:NotificationEventName"),
         recipient=_findtext(body, ".//ebay:RecipientUserID"),
         sender=_findtext(body, ".//ebay:Sender", ".//ebay:SenderID"),
-        text=_findtext(body, ".//ebay:Body", ".//ebay:Text"),
+        text=extract_message_text(raw_text) if raw_text else None,
         message_id=_findtext(
             body,
             ".//ebay:MessageID",

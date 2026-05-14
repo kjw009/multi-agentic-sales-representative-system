@@ -94,6 +94,28 @@ def test_parse_soap_notification_returns_none_when_no_body():
     assert parse_soap_notification(bare) is None
 
 
+def test_parse_soap_notification_strips_ebay_email_html_to_user_input():
+    """When eBay puts the rendered email HTML in <Body>, the parser pulls the
+    actual buyer text out of `<div id="UserInputtedText">…</div>` instead of
+    handing the agent ~30KB of CSS and message-history chrome."""
+    html_body = (
+        "<![CDATA[ <!DOCTYPE html><html><head><style>body{}</style></head>"
+        '<body><div id="UserInputtedText">hello is this item available?<br /></div>'
+        '<div id="UserInputtedText1">earlier history line</div>'
+        "</body></html> ]]>"
+    )
+    envelope = _soap_envelope(body_text=html_body)
+    notif = parse_soap_notification(envelope)
+    assert notif is not None
+    assert notif.text == "hello is this item available?"
+
+
+def test_parse_soap_notification_plain_text_passes_through():
+    notif = parse_soap_notification(_soap_envelope(body_text="just a normal message"))
+    assert notif is not None
+    assert notif.text == "just a normal message"
+
+
 # ---------------------------------------------------------------------------
 # verify_soap_signature
 # ---------------------------------------------------------------------------
