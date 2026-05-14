@@ -81,6 +81,16 @@ export interface ListingStatus {
   required_specifics?: string[];
 }
 
+export interface DraftMessage {
+  message_id: string;
+  conversation_id: string;
+  buyer_handle: string;
+  raw_text: string;
+  draft_reply: string | null;
+  received_at: string;
+  listing_id: string | null;
+}
+
 export const api = {
   signup: (email: string, password: string) =>
     request<TokenResponse>("/auth/signup", {
@@ -122,5 +132,24 @@ export const api = {
   // Returns null while listing is not yet created, ListingStatus once publisher runs
   getListingStatus: (itemId: string) =>
     request<ListingStatus | null>(`/agent/intake/listing/${itemId}`),
+
+  getDrafts: () =>
+    request<DraftMessage[]>("/conversations/drafts"),
+
+  approveDraft: (messageId: string) =>
+    request<{ status: string }>(`/conversations/${messageId}/approve`, {
+      method: "POST",
+    }),
+
+  editDraft: (messageId: string, text: string) =>
+    request<{ status: string }>(`/conversations/${messageId}/edit`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+
+  dismissDraft: (messageId: string) =>
+    request<{ status: string }>(`/conversations/${messageId}/dismiss`, {
+      method: "POST",
+    }),
 };
 

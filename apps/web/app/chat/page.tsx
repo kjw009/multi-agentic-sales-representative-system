@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { api, PricingResult, ListingStatus } from "@/lib/api";
 
 interface Message {
@@ -448,6 +449,21 @@ function ChatPageInner() {
       {/* Sidebar */}
       <aside className="w-56 bg-white border-r border-gray-200 flex flex-col p-4 gap-3 shrink-0">
         <p className="font-semibold text-sm">SalesRep</p>
+        <nav className="space-y-1 mt-4">
+          <Link
+            href="/chat"
+            className="block w-full text-left text-sm bg-blue-50 text-blue-700 font-medium rounded-lg px-3 py-2 transition-colors"
+          >
+            Chat
+          </Link>
+          <Link
+            href="/inbox"
+            className="block w-full text-left text-sm text-gray-600 hover:bg-gray-50 rounded-lg px-3 py-2 transition-colors"
+          >
+            Inbox
+          </Link>
+        </nav>
+
         <div className="flex-1" />
 
         {/* eBay connection button / status */}

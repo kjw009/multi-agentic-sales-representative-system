@@ -3,7 +3,17 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from apps.api.routers import auth, ebay, health, images, intake, internal, pages, webhooks
+from apps.api.routers import (
+    auth,
+    conversations,
+    ebay,
+    health,
+    images,
+    intake,
+    internal,
+    pages,
+    webhooks,
+)
 from packages.config import configure_tracing, settings
 
 # Surface app loggers (pricing/publisher/intake) at INFO so Round/Browse/etc.
@@ -44,6 +54,7 @@ app.include_router(health.router)  # Checks if the API is alive
 app.include_router(auth.router)  # Handles Login / Signup
 app.include_router(ebay.router)  # Handles eBay OAuth & Listings
 app.include_router(intake.router)  # Handles the "Chat" and Image uploads
+app.include_router(conversations.router)  # Handles the draft approval inbox
 app.include_router(images.router)  # Handles image storage/retrieval
 app.include_router(internal.router)  # Backend administrative tools
 app.include_router(pages.router)  # Serves the static Frontend Files (Next.js Build)

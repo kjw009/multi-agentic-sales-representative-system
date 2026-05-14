@@ -530,6 +530,9 @@ class BuyerMessage(Base):
 
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
 
+    draft_reply: Mapped[str | None] = mapped_column(Text)
+    requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     # Set by the SQS worker after NLP + Agent 4 have processed this message.
