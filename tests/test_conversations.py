@@ -24,6 +24,7 @@ def _postgres_reachable() -> bool:
     except (OSError, ValueError):
         return False
 
+
 pytestmark = [
     pytest.mark.skipif(not _postgres_reachable(), reason="Postgres not reachable"),
 ]
