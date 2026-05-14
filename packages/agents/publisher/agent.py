@@ -175,6 +175,9 @@ async def run(
             token=token,
             merchant_location_key=location_key,
         )
+        # Persist the offer ID so the stale-reprice flow can call
+        # update_offer_price without an extra SKU→offer lookup.
+        listing.external_offer_id = offer_result.offer_id
 
         # Step 8: Publish offer (Trading API fallback handles Item.Country in sandbox)
         publish_result = await publish_offer(
