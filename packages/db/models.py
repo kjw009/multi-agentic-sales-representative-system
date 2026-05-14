@@ -83,6 +83,13 @@ class NegotiationStatus(enum.StrEnum):
     seller_review = "seller_review"  # Agent escalated to seller for approval
 
 
+class AutonomyLevel(enum.StrEnum):
+    # Per-seller cap on how much Agent 4 may send without approval.
+    draft = "draft"  # Every reply requires seller approval
+    auto_low_risk = "auto_low_risk"  # Auto-send send_info + decline_offer
+    full_auto = "full_auto"  # Auto-send everything except sale acceptance and seller escalation
+
+
 # --- MODELS ---
 class Seller(Base):
     __tablename__ = "sellers"
@@ -99,6 +106,17 @@ class Seller(Base):
 
     # SNS notification topic (if enabled)
     sns_topic_arn: Mapped[str | None] = mapped_column(String(2048))
+
+    # Phase 5 — autonomy & stale-reprice settings
+    autonomy_level: Mapped[AutonomyLevel] = mapped_column(
+        Enum(AutonomyLevel, name="autonomy_level"),
+        nullable=False,
+        default=AutonomyLevel.draft,
+    )
+    # Days a listing can sit without buyer interaction before it qualifies for reprice
+    stale_threshold_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
+    # Hard cap on automatic reprices per listing
+    max_reprice_count: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
 
     # Auto-managed timestamps (DB-side defaults)
     created_at: Mapped[datetime] = mapped_column(
@@ -399,6 +417,10 @@ class Listing(Base):
 
     # External identifiers from the marketplace
     external_id: Mapped[str | None] = mapped_column(String(255))  # eBay listing ID
+    # eBay offer ID — needed by /sell/inventory/v1/offer/{offer_id} for repricing.
+    # Null for Trading-API-only listings (sandbox fallback path), which can't be
+    # repriced through update_offer_price.
+    external_offer_id: Mapped[str | None] = mapped_column(String(255))
     url: Mapped[str | None] = mapped_column(String(2048))  # Live listing URL
 
     # Listing lifecycle status
@@ -820,3 +842,4 @@ class EntityMention(Base):
     buyer_message: Mapped["BuyerMessage"] = relationship(
         "BuyerMessage", back_populates="entity_mentions"
     )
+
