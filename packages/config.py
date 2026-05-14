@@ -34,11 +34,17 @@ class Settings(BaseSettings):
     aws_region: str = "eu-west-2"
 
     # AWS S3 (for storing item images)
+    # Leave s3_endpoint_url empty in prod so boto3 hits real AWS S3.
+    # s3_public_base_url is the externally reachable URL base eBay (and buyers)
+    # will hit — e.g. https://salesrep-images.s3.eu-west-2.amazonaws.com
+    # or a CloudFront domain. If empty, falls back to {s3_endpoint_url}/{bucket},
+    # which is correct for local MinIO only.
     s3_endpoint_url: str = "http://localhost:9000"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
     s3_bucket: str = "salesrep-images"
     s3_region: str = "us-east-1"
+    s3_public_base_url: str = ""
 
     openai_api_key: str = ""
     openai_base_url: str = ""
