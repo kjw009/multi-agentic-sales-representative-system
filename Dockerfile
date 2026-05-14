@@ -11,10 +11,10 @@ WORKDIR /app
 
 COPY --from=uv /uv /usr/local/bin/uv
 
-COPY . .
-
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 
+# Copy only dependency files first so this layer is cached unless deps change.
+COPY pyproject.toml uv.lock* ./
 RUN uv pip install --system -e ".[nlp]"
 
 # spaCy ships without language models — download the small English model used
@@ -28,6 +28,9 @@ RUN python -m spacy download en_core_web_sm
 RUN python -c "from transformers import pipeline; \
     pipeline('zero-shot-classification', model='valhalla/distilbart-mnli-12-1'); \
     pipeline('sentiment-analysis', model='cardiffnlp/twitter-roberta-base-sentiment-latest')"
+
+# Source code is copied last — only this layer rebuilds on code changes.
+COPY . .
 
 EXPOSE 8000
 
