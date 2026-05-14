@@ -1,6 +1,8 @@
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import ANY, AsyncMock, patch
+import socket
+from urllib.parse import urlparse
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -8,6 +10,22 @@ from httpx import ASGITransport, AsyncClient
 from apps.api.main import app
 from packages.db.models import BuyerMessage, Conversation, Seller
 from packages.db.session import SessionLocal
+from packages.config import settings
+
+def _postgres_reachable() -> bool:
+    """Quick TCP probe so we can skip these tests when Postgres isn't running."""
+    try:
+        parsed = urlparse(settings.database_url.replace("+asyncpg", ""))
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 5432
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except (OSError, ValueError):
+        return False
+
+pytestmark = [
+    pytest.mark.skipif(not _postgres_reachable(), reason="Postgres not reachable"),
+]
 
 
 @pytest.mark.asyncio
