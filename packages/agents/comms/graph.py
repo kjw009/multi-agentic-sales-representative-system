@@ -75,6 +75,7 @@ def _resolve_requires_approval(autonomy: AutonomyLevel, tool_name: str | None) -
     # full_auto: anything not in APPROVAL_ONLY_TOOLS is auto-sent
     return False
 
+
 # System prompt template — NOTE: walk_away_price is NEVER included here
 _SYSTEM_PROMPT = """You are a professional sales assistant managing buyer inquiries on eBay.
 You represent the seller and must be polite, helpful, and professional at all times.

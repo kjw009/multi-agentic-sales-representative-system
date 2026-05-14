@@ -156,7 +156,5 @@ async def reprice_listing_task(seller_id: uuid.UUID, listing_id: uuid.UUID) -> N
         try:
             await reprice_listing(seller_id, listing_id, session)
         except Exception:
-            logger.exception(
-                "[Reprice] failed for seller=%s listing=%s", seller_id, listing_id
-            )
+            logger.exception("[Reprice] failed for seller=%s listing=%s", seller_id, listing_id)
             raise

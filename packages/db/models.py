@@ -842,4 +842,3 @@ class EntityMention(Base):
     buyer_message: Mapped["BuyerMessage"] = relationship(
         "BuyerMessage", back_populates="entity_mentions"
     )
-
