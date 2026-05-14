@@ -94,9 +94,7 @@ async def approve_draft(
     seller: Seller = Depends(get_current_seller),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
-    buyer_message, recipient_id, item_id = await _load_reply_context(
-        message_id, seller.id, session
-    )
+    buyer_message, recipient_id, item_id = await _load_reply_context(message_id, seller.id, session)
 
     draft_reply = buyer_message.draft_reply
     if not draft_reply:
@@ -135,9 +133,7 @@ async def edit_draft(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Draft reply cannot be empty"
         )
 
-    buyer_message, recipient_id, item_id = await _load_reply_context(
-        message_id, seller.id, session
-    )
+    buyer_message, recipient_id, item_id = await _load_reply_context(message_id, seller.id, session)
 
     buyer_message.draft_reply = body.text
 
