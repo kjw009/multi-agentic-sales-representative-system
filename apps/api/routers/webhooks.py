@@ -179,6 +179,11 @@ async def ebay_webhook_receive(
             received_at=datetime.now(UTC),
         )
         session.add(buyer_msg)
+
+        # Phase 5: any inbound buyer activity resets the stale-reprice timer.
+        if listing is not None:
+            listing.last_buyer_interaction_at = datetime.now(UTC)
+
         await session.commit()
 
         logger.info(
