@@ -7,11 +7,10 @@ then persists results to the database.
 
 import logging
 import uuid
-from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.db.models import BuyerMessage, EntityMention, NlpAnnotation, OfferSignal
+from packages.db.models import EntityMention, NlpAnnotation, OfferSignal
 from packages.schemas.nlp import NlpResult
 
 logger = logging.getLogger(__name__)
@@ -89,11 +88,6 @@ async def analyse_message(
                 end_char=entity.end_char,
             )
         )
-
-    # --- 7. Mark message as processed ---
-    msg = await session.get(BuyerMessage, message_id)
-    if msg:
-        msg.processed_at = datetime.now(UTC)
 
     await session.flush()
 
