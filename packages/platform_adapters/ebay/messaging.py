@@ -52,62 +52,60 @@ async def send_message(
     recipient_id: str,
     item_id: str,
 ) -> dict[str, Any]:
-    """Send an outbound reply to an eBay buyer via Trading API AddMemberMessageAAQToPartner.
+    """Send a seller-to-buyer reply via Trading API AddMemberMessagesAAQToBidder.
 
-    Works for both AskSellerQuestion (ASQ) and ContactEBayMember-style threads.
-    AddMemberMessageRTQ would be cleaner for ASQ specifically, but errors with
-    17453 ("Invalid Parent Message Id") for any non-ASQ parent — which covers
-    most of what we actually receive.
+    Why this call: most of our inbound messages are pre-purchase enquiries
+    (ContactEBayMember). The seller-side reply options are:
 
-    Required fields per eBay:
-      - ItemID at the request root
-      - MemberMessage.Subject
+      - AddMemberMessageRTQ → only works when the parent is an AskSellerQuestion.
+        Fails with 17453 ("Invalid Parent Message Id") for ContactEBayMember.
+      - AddMemberMessageAAQToPartner → requires an existing transaction.
+        Fails with 2190823 ("The sender or recipient is not the partner of the
+        transaction.") for pre-purchase buyers.
+      - AddMemberMessagesAAQToBidder → designed for sellers messaging anyone
+        interested in their item (bidders, watchers, askers). Doesn't require
+        a transaction or an ASQ parent. This is the only call that works for
+        the general case.
+
+    Required fields per eBay (inside the request container):
+      - ItemID
       - MemberMessage.Body
       - MemberMessage.QuestionType
       - MemberMessage.RecipientID
-    ParentMessageID is optional (threads the reply if supplied).
-
-    Note: MemberMessage.MessageType is rejected by this call ("Input data for
-    tag <MemberMessage.MessageType> is invalid or missing", errorId 37) even
-    for values that are valid in the global MessageTypeCodeType enum — eBay's
-    validator restricts which values are allowed per-call, and AAQToPartner
-    doesn't accept any value reliably. Omit it.
+      - CorrelationID (for matching response to request in the bulk call)
     """
     token = await get_seller_token(seller_id, session)
     site_id = _TRADING_API_SITE_ID_MAP.get(settings.ebay_marketplace_id, "3")
 
     body_text = xml_escape(text[:2000])
-
-    parent_xml = (
-        f"<ParentMessageID>{xml_escape(parent_message_id)}</ParentMessageID>"
-        if parent_message_id
-        else ""
-    )
+    correlation_id = xml_escape(parent_message_id or str(uuid.uuid4()))
 
     xml_body = (
         '<?xml version="1.0" encoding="utf-8"?>'
-        '<AddMemberMessageAAQToPartnerRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
+        '<AddMemberMessagesAAQToBidderRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
         "<RequesterCredentials>"
         f"<eBayAuthToken>{token.access_token}</eBayAuthToken>"
         "</RequesterCredentials>"
+        "<AddMemberMessagesAAQToBidderRequestContainer>"
         f"<ItemID>{xml_escape(item_id)}</ItemID>"
         "<MemberMessage>"
         "<Subject>Re: your message</Subject>"
         "<Body>"
         f"<![CDATA[{body_text}]]>"
         "</Body>"
-        f"{parent_xml}"
         "<QuestionType>General</QuestionType>"
         f"<RecipientID>{xml_escape(recipient_id)}</RecipientID>"
         "</MemberMessage>"
-        "</AddMemberMessageAAQToPartnerRequest>"
+        f"<CorrelationID>{correlation_id}</CorrelationID>"
+        "</AddMemberMessagesAAQToBidderRequestContainer>"
+        "</AddMemberMessagesAAQToBidderRequest>"
     )
 
     trading_url = f"{_base()}/ws/api.dll"
     headers = {
         "X-EBAY-API-SITEID": site_id,
         "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
-        "X-EBAY-API-CALL-NAME": "AddMemberMessageAAQToPartner",
+        "X-EBAY-API-CALL-NAME": "AddMemberMessagesAAQToBidder",
         "X-EBAY-API-IAF-TOKEN": token.access_token,
         "Content-Type": "text/xml;charset=utf-8",
     }

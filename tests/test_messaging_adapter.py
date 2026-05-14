@@ -52,11 +52,11 @@ def _patch_get_seller_token(monkeypatch):
 @pytest.mark.asyncio
 @respx.mock
 async def test_send_message_success():
-    """send_message should send AddMemberMessageAAQToPartner XML with all required fields."""
+    """send_message should send AddMemberMessagesAAQToBidder XML with all required fields."""
     xml_response = """<?xml version="1.0" encoding="UTF-8"?>
-    <AddMemberMessageAAQToPartnerResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+    <AddMemberMessagesAAQToBidderResponse xmlns="urn:ebay:apis:eBLBaseComponents">
         <Ack>Success</Ack>
-    </AddMemberMessageAAQToPartnerResponse>"""
+    </AddMemberMessagesAAQToBidderResponse>"""
 
     respx.post("https://api.ebay.com/ws/api.dll").mock(
         return_value=httpx.Response(200, text=xml_response)
@@ -76,26 +76,28 @@ async def test_send_message_success():
 
     call = respx.calls[0]
     body = call.request.content.decode("utf-8")
-    assert "AddMemberMessageAAQToPartnerRequest" in body
+    assert "AddMemberMessagesAAQToBidderRequest" in body
+    assert "AddMemberMessagesAAQToBidderRequestContainer" in body
     assert "Thanks for your interest!" in body
-    assert "<ParentMessageID>msg999</ParentMessageID>" in body
     assert "<RecipientID>buyer_test</RecipientID>" in body
     assert "<ItemID>123456789</ItemID>" in body
     assert "<QuestionType>General</QuestionType>" in body
     assert "<Subject>" in body
-    # MessageType must NOT be sent — eBay rejects every enum value for this call.
+    assert "<CorrelationID>msg999</CorrelationID>" in body
     assert "<MessageType>" not in body
-    assert dict(call.request.headers)["x-ebay-api-call-name"] == "AddMemberMessageAAQToPartner"
+    assert "<ParentMessageID>" not in body  # not supported by ToBidder
+    assert dict(call.request.headers)["x-ebay-api-call-name"] == "AddMemberMessagesAAQToBidder"
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_send_message_omits_parent_message_id_when_blank():
-    """ParentMessageID is optional — when caller passes empty string, don't emit the tag."""
+async def test_send_message_synthesises_correlation_id_when_no_parent():
+    """When the caller has no parent message id, we still need a CorrelationID for
+    the bulk request — synthesise one."""
     xml_response = """<?xml version="1.0" encoding="UTF-8"?>
-    <AddMemberMessageAAQToPartnerResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+    <AddMemberMessagesAAQToBidderResponse xmlns="urn:ebay:apis:eBLBaseComponents">
         <Ack>Success</Ack>
-    </AddMemberMessageAAQToPartnerResponse>"""
+    </AddMemberMessagesAAQToBidderResponse>"""
 
     respx.post("https://api.ebay.com/ws/api.dll").mock(
         return_value=httpx.Response(200, text=xml_response)
@@ -111,7 +113,8 @@ async def test_send_message_omits_parent_message_id_when_blank():
     )
 
     body = respx.calls[0].request.content.decode("utf-8")
-    assert "ParentMessageID" not in body
+    assert "<CorrelationID>" in body
+    assert "<CorrelationID></CorrelationID>" not in body
 
 
 @pytest.mark.asyncio
@@ -119,13 +122,13 @@ async def test_send_message_omits_parent_message_id_when_blank():
 async def test_send_message_failure():
     """send_message should raise RuntimeError on API failure."""
     xml_response = """<?xml version="1.0" encoding="UTF-8"?>
-    <AddMemberMessageAAQToPartnerResponse xmlns="urn:ebay:apis:eBLBaseComponents">
+    <AddMemberMessagesAAQToBidderResponse xmlns="urn:ebay:apis:eBLBaseComponents">
         <Ack>Failure</Ack>
         <Errors>
             <ShortMessage>Invalid token</ShortMessage>
             <LongMessage>The auth token is invalid.</LongMessage>
         </Errors>
-    </AddMemberMessageAAQToPartnerResponse>"""
+    </AddMemberMessagesAAQToBidderResponse>"""
 
     respx.post("https://api.ebay.com/ws/api.dll").mock(
         return_value=httpx.Response(200, text=xml_response)
