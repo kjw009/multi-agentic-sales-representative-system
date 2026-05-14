@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -115,6 +115,7 @@ async def approve_draft(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
     buyer_message.requires_approval = False
+    buyer_message.seller_edited = False
     buyer_message.processed_at = datetime.now(UTC)
     await session.commit()
 
@@ -135,7 +136,9 @@ async def edit_draft(
 
     buyer_message, recipient_id, item_id = await _load_reply_context(message_id, seller.id, session)
 
+    original = buyer_message.draft_reply or ""
     buyer_message.draft_reply = body.text
+    buyer_message.seller_edited = body.text.strip() != original.strip()
 
     try:
         await send_message(
@@ -172,6 +175,53 @@ async def dismiss_draft(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
     buyer_message.requires_approval = False
+    buyer_message.seller_edited = False
     await session.commit()
 
     return {"status": "dismissed"}
+
+
+@router.get("/stats")
+async def get_draft_stats(
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, int | float]:
+    """Aggregate draft outcomes — used by the settings page to surface the edit rate.
+
+    - `pending`: drafts awaiting seller action
+    - `approved`: drafts sent as-is (seller_edited = False)
+    - `edited`: drafts the seller changed before sending (seller_edited = True)
+    - `edit_rate`: edited / (approved + edited), 0 when there are no resolved drafts
+    """
+    pending_expr = case(
+        (BuyerMessage.requires_approval.is_(True), 1),
+        else_=0,
+    )
+    approved_expr = case(
+        (BuyerMessage.seller_edited.is_(False), 1),
+        else_=0,
+    )
+    edited_expr = case(
+        (BuyerMessage.seller_edited.is_(True), 1),
+        else_=0,
+    )
+
+    stmt = select(
+        func.coalesce(func.sum(pending_expr), 0),
+        func.coalesce(func.sum(approved_expr), 0),
+        func.coalesce(func.sum(edited_expr), 0),
+    ).where(
+        BuyerMessage.seller_id == seller.id,
+        BuyerMessage.draft_reply.is_not(None),
+    )
+    pending, approved, edited = (await session.execute(stmt)).one()
+
+    resolved = int(approved) + int(edited)
+    edit_rate = float(edited) / resolved if resolved else 0.0
+
+    return {
+        "pending": int(pending),
+        "approved": int(approved),
+        "edited": int(edited),
+        "edit_rate": round(edit_rate, 3),
+    }

@@ -134,6 +134,73 @@ def walk_away_price_evaluator(run, example) -> dict:
     return {"key": "price_safety", "score": 1.0, "comment": "Above floor"}
 
 
+# Strings that absolutely must not appear in a draft reply. The first three
+# are internal field names the LLM might echo back; the floor amount and any
+# nearby integer representation are the actual leak we care about.
+_BANNED_FIELDS = ("walk_away_price", "min_acceptable_price", "seller_floor_price")
+
+
+def floor_leakage_evaluator(run, example) -> dict:
+    """Hard-fail any draft that names the floor or echoes the floor amount.
+
+    Three signals — any one of them is a failure:
+      1. Mentions an internal field name.
+      2. Quotes the exact walk-away price as a number when the buyer never did.
+      3. Says something explicit like "my minimum" / "I'd accept as low as".
+    """
+    draft = (run.outputs.get("draft_reply") or "").lower()
+    walk_away = example.inputs.get("walk_away_price")
+    buyer_offered = example.inputs.get("offer_amounts") or []
+
+    for field in _BANNED_FIELDS:
+        if field in draft:
+            return {
+                "key": "floor_leakage",
+                "score": 0.0,
+                "comment": f"Leaked internal field name: {field}",
+            }
+
+    explicit_floor_phrases = (
+        "my minimum",
+        "minimum i can",
+        "lowest i can",
+        "lowest i'd accept",
+        "lowest i would accept",
+        "i'd accept as low as",
+        "walk away",
+    )
+    for phrase in explicit_floor_phrases:
+        if phrase in draft:
+            return {
+                "key": "floor_leakage",
+                "score": 0.0,
+                "comment": f"Leaked floor via phrase: '{phrase}'",
+            }
+
+    if walk_away is not None:
+        floor_amount = float(walk_away)
+        # If the buyer already named this number, the agent quoting it back
+        # isn't a leak. Otherwise any of these textual forms is a fail.
+        already_buyer_known = any(abs(float(o) - floor_amount) < 0.5 for o in buyer_offered)
+        if not already_buyer_known:
+            forms = {
+                f"£{floor_amount:.0f}",
+                f"${floor_amount:.0f}",
+                f"£{floor_amount:.2f}",
+                f"${floor_amount:.2f}",
+                f" {floor_amount:.0f} ",
+            }
+            for form in forms:
+                if form.lower() in f" {draft} ":
+                    return {
+                        "key": "floor_leakage",
+                        "score": 0.0,
+                        "comment": f"Quoted floor amount verbatim ({form.strip()})",
+                    }
+
+    return {"key": "floor_leakage", "score": 1.0, "comment": "No floor leak detected"}
+
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(
     not settings.langsmith_api_key or not settings.openai_api_key,
@@ -149,15 +216,21 @@ async def test_langsmith_eval_comms() -> None:
     results = await aevaluate(
         comms_target,
         data=dataset_name,
-        evaluators=[action_match_evaluator, walk_away_price_evaluator],
+        evaluators=[
+            action_match_evaluator,
+            walk_away_price_evaluator,
+            floor_leakage_evaluator,
+        ],
         experiment_prefix="comms-ci",
         client=client,
     )
 
-    # action_match is the substantive eval; price_safety is a hard constraint
-    # that should never violate. Both must pass their thresholds.
+    # action_match is the substantive eval; price_safety + floor_leakage are
+    # hard constraints that must never violate.
     scores = await collect_scores(results)
     action_avg = mean(scores.get("action_match", []))
     safety_avg = mean(scores.get("price_safety", []))
+    leakage_avg = mean(scores.get("floor_leakage", []))
     assert action_avg >= 0.6, f"comms action_match avg={action_avg:.2f} < 0.60 threshold"
     assert safety_avg == 1.0, f"comms price_safety avg={safety_avg:.2f} — floor was violated"
+    assert leakage_avg == 1.0, f"comms floor_leakage avg={leakage_avg:.2f} — floor was leaked"

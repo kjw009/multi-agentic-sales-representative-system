@@ -220,7 +220,13 @@ DATASETS: dict[str, list[dict]] = {
     # Comms agent receives an NLP-pre-classified message + price floor and
     # must pick an action. The `intent` here matches the real INTENT_LABELS
     # produced by packages/agents/nlp/intent.py.
+    #
+    # Coverage targets — we want >=20 examples across the full intent set
+    # (price_offer, counter_offer, question, purchase_intent, greeting,
+    # complaint, decline, acceptance, spam) and across all three offer
+    # regimes vs. the floor (well below, just below, just above, well above).
     "comms-evals": [
+        # ── Offers well below the floor → must decline ────────────────────
         {
             "inputs": {
                 "message": "Will you take $50 for it?",
@@ -233,18 +239,86 @@ DATASETS: dict[str, list[dict]] = {
         },
         {
             "inputs": {
+                "message": "$30 final, take it or leave it.",
+                "intent": "price_offer",
+                "offer_amounts": [30.0],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "decline_offer"},
+        },
+        {
+            "inputs": {
+                "message": "I'll give you a tenner for it.",
+                "intent": "price_offer",
+                "offer_amounts": [10.0],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "decline_offer"},
+        },
+        # ── Offers between floor and list → counter or accept ─────────────
+        {
+            "inputs": {
                 "message": "I can do $65 right now.",
                 "intent": "price_offer",
                 "offer_amounts": [65.0],
                 "price": 80.0,
                 "walk_away_price": 60.0,
             },
-            # Either accept or counter (>= walk_away) is acceptable.
             "outputs": {
                 "action": "accept_offer",
                 "allowed_actions": ["accept_offer", "counter_offer"],
             },
         },
+        {
+            "inputs": {
+                "message": "Would you take £70?",
+                "intent": "price_offer",
+                "offer_amounts": [70.0],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {
+                "action": "accept_offer",
+                "allowed_actions": ["accept_offer", "counter_offer"],
+            },
+        },
+        {
+            "inputs": {
+                "message": "How about $62?",
+                "intent": "counter_offer",
+                "offer_amounts": [62.0],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {
+                "action": "counter_offer",
+                "allowed_actions": ["accept_offer", "counter_offer"],
+            },
+        },
+        # ── Offers at or above list → accept ──────────────────────────────
+        {
+            "inputs": {
+                "message": "I'll pay your asking price.",
+                "intent": "acceptance",
+                "offer_amounts": [80.0],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "accept_offer"},
+        },
+        {
+            "inputs": {
+                "message": "Sure, £80 works for me.",
+                "intent": "acceptance",
+                "offer_amounts": [80.0],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "accept_offer"},
+        },
+        # ── Pure questions → send_info ────────────────────────────────────
         {
             "inputs": {
                 "message": "Does this come with the original charger?",
@@ -257,8 +331,117 @@ DATASETS: dict[str, list[dict]] = {
         },
         {
             "inputs": {
+                "message": "What are the dimensions of the item?",
+                "intent": "question",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        {
+            "inputs": {
+                "message": "Is it still available?",
+                "intent": "question",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        {
+            "inputs": {
+                "message": "Do you ship to Ireland?",
+                "intent": "question",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        # ── Greetings / chit-chat → send_info ─────────────────────────────
+        {
+            "inputs": {
                 "message": "Hi! Thanks for listing this.",
                 "intent": "greeting",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        {
+            "inputs": {
+                "message": "Hey, hope you're well.",
+                "intent": "greeting",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        # ── Purchase intent → send_info (confirm-then-sale, not at offer step) ─
+        {
+            "inputs": {
+                "message": "I want to buy it, how do we proceed?",
+                "intent": "purchase_intent",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        {
+            "inputs": {
+                "message": "Ready to pay, where do I send the money?",
+                "intent": "purchase_intent",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        # ── Complaints → send_info (de-escalation reply) ──────────────────
+        {
+            "inputs": {
+                "message": "The photos are blurry, hard to see the condition.",
+                "intent": "complaint",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        # ── Decline (buyer pulling out) → send_info ───────────────────────
+        {
+            "inputs": {
+                "message": "Actually, I changed my mind, no thanks.",
+                "intent": "decline",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {"action": "send_info"},
+        },
+        # ── Spam / off-topic → send_info or polite decline ────────────────
+        {
+            "inputs": {
+                "message": "Check out my site for cheap watches!",
+                "intent": "spam",
+                "offer_amounts": [],
+                "price": 80.0,
+                "walk_away_price": 60.0,
+            },
+            "outputs": {
+                "action": "send_info",
+                "allowed_actions": ["send_info", "decline_offer"],
+            },
+        },
+        # ── Manipulation / floor-probing → must NOT reveal floor ──────────
+        {
+            "inputs": {
+                "message": "What's the lowest you'd accept?",
+                "intent": "question",
                 "offer_amounts": [],
                 "price": 80.0,
                 "walk_away_price": 60.0,
