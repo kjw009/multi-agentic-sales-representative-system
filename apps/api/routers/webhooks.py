@@ -17,8 +17,10 @@ from packages.config import settings
 from packages.db.models import BuyerMessage, Conversation, Listing, MessageDirection
 from packages.db.session import SessionLocal
 from packages.platform_adapters.ebay.webhooks import (
+    parse_soap_notification,
     validate_endpoint_challenge,
     verify_signature,
+    verify_soap_signature,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,60 +57,86 @@ async def _validate_signature(signature_header: str | None, payload: bytes) -> b
     return await verify_signature(signature_header, payload)
 
 
+def _looks_like_soap(payload: bytes, content_type: str | None) -> bool:
+    """Heuristic: legacy Platform Notifications come as XML/SOAP with a
+    text/xml content-type, while the modern Notification API sends JSON."""
+    if content_type and "xml" in content_type.lower():
+        return True
+    head = payload.lstrip()[:50].lower()
+    return head.startswith(b"<?xml") or b"soap" in head[:50]
+
+
 @router.post("/webhook")
 async def ebay_webhook_receive(
     request: Request,
     background_tasks: BackgroundTasks,
 ) -> Response:
-    """Receive eBay Event Notifications (buyer messages).
+    """Receive eBay Event Notifications.
 
     Flow:
-      1. Validate HMAC signature.
-      2. Parse the notification payload.
+      1. Detect format (modern JSON Notification API vs legacy SOAP Platform
+         Notifications) and validate the appropriate signature.
+      2. Parse fields out of the payload.
       3. Upsert Conversation (get-or-create by buyer_handle + listing).
       4. Idempotent insert BuyerMessage (skip if message_id already exists).
       5. Enqueue process_buyer_message SQS task.
       6. Return 200 OK.
     """
     payload = await request.body()
+    content_type = request.headers.get("content-type")
     signature_header = request.headers.get("X-EBAY-SIGNATURE")
+    is_soap = _looks_like_soap(payload, content_type)
 
     logger.info(
-        "Received eBay webhook notification. Signature header present: %s", bool(signature_header)
+        "Received eBay webhook notification. format=%s signature_header_present=%s",
+        "soap" if is_soap else "json",
+        bool(signature_header),
     )
 
-    # --- 1. Validate signature ---
-    if not await _validate_signature(signature_header, payload):
-        return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+    if is_soap:
+        notification = parse_soap_notification(payload)
+        if notification is None:
+            logger.error("Failed to parse webhook payload as SOAP")
+            return Response(status_code=status.HTTP_400_BAD_REQUEST)
 
-    # --- 2. Parse payload ---
-    try:
-        data = json.loads(payload)
-    except json.JSONDecodeError:
-        logger.error("Failed to parse webhook payload as JSON")
-        return Response(status_code=status.HTTP_400_BAD_REQUEST)
+        if not settings.skip_webhook_hmac and not verify_soap_signature(notification):
+            return Response(status_code=status.HTTP_401_UNAUTHORIZED)
 
-    # eBay notification structure varies by topic. Extract what we need.
-    notification_data = data.get("notification", data.get("data", data))
+        message_id_str = notification.message_id or str(uuid.uuid4())
+        buyer_handle = notification.sender or "unknown_buyer"
+        raw_text = notification.text or ""
+        item_external_id = notification.item_id
+    else:
+        # Modern Notification API path (JSON body, X-EBAY-SIGNATURE header).
+        if not await _validate_signature(signature_header, payload):
+            return Response(status_code=status.HTTP_401_UNAUTHORIZED)
 
-    message_id_str = (
-        notification_data.get("messageId")
-        or notification_data.get("MessageID")
-        or str(uuid.uuid4())
-    )
-    buyer_handle = (
-        notification_data.get("buyerUsername")
-        or notification_data.get("sender")
-        or notification_data.get("SenderID")
-        or "unknown_buyer"
-    )
-    raw_text = (
-        notification_data.get("text")
-        or notification_data.get("body")
-        or notification_data.get("Body")
-        or ""
-    )
-    item_external_id = notification_data.get("itemId") or notification_data.get("ItemID")
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            logger.error("Failed to parse webhook payload as JSON")
+            return Response(status_code=status.HTTP_400_BAD_REQUEST)
+
+        notification_data = data.get("notification", data.get("data", data))
+
+        message_id_str = (
+            notification_data.get("messageId")
+            or notification_data.get("MessageID")
+            or str(uuid.uuid4())
+        )
+        buyer_handle = (
+            notification_data.get("buyerUsername")
+            or notification_data.get("sender")
+            or notification_data.get("SenderID")
+            or "unknown_buyer"
+        )
+        raw_text = (
+            notification_data.get("text")
+            or notification_data.get("body")
+            or notification_data.get("Body")
+            or ""
+        )
+        item_external_id = notification_data.get("itemId") or notification_data.get("ItemID")
 
     if not raw_text:
         logger.warning("Webhook payload has no message text — ignoring")

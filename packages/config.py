@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # eBay API credentials
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
+    # DevID is only required for legacy Trading API SOAP NotificationSignature
+    # verification (buyer-message Platform Notifications). Find it in the eBay
+    # Developer Portal alongside AppID/CertID.
+    ebay_dev_id: str = ""
     ebay_env: str = "production"
     ebay_ru_name: str = (
         ""  # RuName from eBay Developer Portal (used as redirect_uri in OAuth requests)
