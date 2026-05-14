@@ -71,13 +71,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file: .env
     command: uv run python -m workers.sqs_worker
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-salesrep}:${POSTGRES_PASSWORD:-salesrep}@postgres:5432/${POSTGRES_DB:-salesrep}
       SQS_QUEUE_URL: ${SQS_QUEUE_URL}
       SQS_REGION: ${SQS_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-salesrep}
