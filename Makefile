@@ -1,4 +1,4 @@
-.PHONY: help up down logs ps install install-ml install-nlp test fmt lint mypy ci migrate migration shell-api shell-db worker
+.PHONY: help up down logs ps install install-ml install-nlp test evals evals-sync fmt lint mypy ci migrate migration shell-api shell-db worker
 
 help:
 	@echo "Stack:"
@@ -12,6 +12,8 @@ help:
 	@echo "  make install-ml   install ML extras (XGBoost, sklearn, pandas)"
 	@echo "  make install-nlp  install NLP extras (spaCy)"
 	@echo "  make test         run pytest"
+	@echo "  make evals        run langsmith evaluations"
+	@echo "  make evals-sync   sync langsmith datasets"
 	@echo "  make fmt          ruff format + fix"
 	@echo "  make lint         ruff check"
 	@echo "  make mypy         mypy type check"
@@ -50,7 +52,13 @@ install-nlp:
 	uv sync --extra dev --extra nlp
 
 test:
-	uv run pytest
+	uv run pytest tests/ --ignore=tests/evals/
+
+evals:
+	uv run pytest tests/evals/
+
+evals-sync:
+	uv run python tests/evals/sync_datasets.py
 
 fmt:
 	uv run ruff format .

@@ -24,7 +24,9 @@ phases:
       # Type check
       - uv run mypy apps packages workers
       # Tests (all mock-based, no live DB needed)
-      - JWT_SECRET_KEY=ci-test-secret uv run pytest --cov
+      - JWT_SECRET_KEY=ci-test-secret uv run pytest tests/ --ignore=tests/evals/ --cov
+      # Run LangSmith Evaluations
+      - uv run pytest tests/evals/
       # Validate Dockerfile builds (requires privileged mode)
       - docker build .
       # Frontend type check + build
