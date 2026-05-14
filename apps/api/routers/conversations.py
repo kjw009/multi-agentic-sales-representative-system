@@ -69,7 +69,8 @@ async def approve_draft(
     if not buyer_message:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
-    if not buyer_message.draft_reply:
+    draft_reply = buyer_message.draft_reply
+    if not draft_reply:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No draft reply to send"
         )
@@ -77,7 +78,7 @@ async def approve_draft(
     try:
         await send_message(
             conversation_id=str(buyer_message.conversation_id),
-            text=buyer_message.draft_reply,
+            text=draft_reply,
             seller_id=seller.id,
             session=session,
         )
@@ -117,7 +118,7 @@ async def edit_draft(
     try:
         await send_message(
             conversation_id=str(buyer_message.conversation_id),
-            text=buyer_message.draft_reply,
+            text=body.text,
             seller_id=seller.id,
             session=session,
         )
