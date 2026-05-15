@@ -159,7 +159,7 @@ def _condition_ord(item: Item) -> int:
 
 
 @traceable(name="pricing_model_predict", run_type="tool")
-def _model_predict(item: Item, comparable_prices: list[float]) -> tuple[float | None, dict | None]:
+def _model_predict(item: Item, comparable_prices: list[float]) -> tuple[float | None, dict[str, Any] | None]:
     # Calculate the predicted price olely on the historical ML model
     if _MODEL is None or _META is None or _PCA_TITLE is None or _PCA_DESC is None:
         return None, None
@@ -421,9 +421,9 @@ async def _persist_prediction(
     seller_id: uuid.UUID,
     result: "PricingResult",
     model_pred: float | None,
-    model_features: dict | None,
+    model_features: dict[str, Any] | None,
     comparable_median: float | None,
-    validated_comparables: list,
+    validated_comparables: list[Any],
     session: AsyncSession,
 ) -> None:
     """Write a PricePrediction row + ComparableListing rows for the retraining loop."""

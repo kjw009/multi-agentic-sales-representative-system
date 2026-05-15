@@ -22,7 +22,7 @@ _SUCCESS_URL = f"{settings.frontend_base_url}/settings?billing=success"
 _CANCEL_URL = f"{settings.frontend_base_url}/settings"
 
 
-def _stripe() -> stripe.Stripe:
+def _stripe() -> stripe.StripeClient:
     if not settings.billing_enabled or not settings.stripe_secret_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -107,7 +107,7 @@ async def stripe_webhook(
 
     payload = await request.body()
     try:
-        event = stripe.Webhook.construct_event(
+        event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
             payload, stripe_signature or "", settings.stripe_webhook_secret
         )
     except stripe.SignatureVerificationError:
