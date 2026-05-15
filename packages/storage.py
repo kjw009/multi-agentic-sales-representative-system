@@ -50,16 +50,19 @@ def _ensure_bucket(client: Any) -> None:
     """
     Ensure the S3 bucket exists, creating it if necessary.
 
-    Only auto-creates against MinIO (s3_endpoint_url set). On real AWS the
-    bucket is provisioned out-of-band — see infrastructure/s3-images-setup.md.
+    Only relevant for local MinIO (s3_endpoint_url set): the bucket is
+    auto-created on first use. On real AWS S3 the bucket is provisioned
+    out-of-band (see infrastructure/s3-images-setup.md), so we skip the
+    check entirely — HeadBucket needs the extra s3:ListBucket permission
+    that the upload itself does not, and a genuinely missing bucket
+    surfaces clearly from put_object anyway.
     """
+    if not settings.s3_endpoint_url:
+        return  # real S3 — bucket managed outside the app
     try:
         client.head_bucket(Bucket=settings.s3_bucket)
     except ClientError:
-        if settings.s3_endpoint_url:
-            client.create_bucket(Bucket=settings.s3_bucket)
-        else:
-            raise
+        client.create_bucket(Bucket=settings.s3_bucket)
 
 
 async def upload_image(

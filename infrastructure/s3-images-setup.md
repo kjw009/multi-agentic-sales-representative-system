@@ -61,8 +61,8 @@ aws s3api put-bucket-cors --bucket "$BUCKET" --cors-configuration file:///tmp/co
 
 ## IAM permission for the EC2 instance role
 
-The EC2 host's instance role needs `s3:PutObject` (and `s3:HeadBucket`) on the
-new bucket. Attach this inline policy to the role:
+The EC2 host's instance role needs `s3:PutObject` on the new bucket — that is
+all the upload path uses. Attach this inline policy to the role:
 
 ```json
 {
@@ -70,11 +70,8 @@ new bucket. Attach this inline policy to the role:
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:HeadBucket"],
-      "Resource": [
-        "arn:aws:s3:::salesrep-images-prod",
-        "arn:aws:s3:::salesrep-images-prod/*"
-      ]
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::salesrep-images-prod/*"
     }
   ]
 }
