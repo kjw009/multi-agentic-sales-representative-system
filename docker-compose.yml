@@ -40,9 +40,12 @@ services:
     command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-salesrep}:${POSTGRES_PASSWORD:-salesrep}@postgres:5432/${POSTGRES_DB:-salesrep}
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
-      S3_SECRET_KEY: ${S3_SECRET_KEY:-minioadmin}
+      # Local dev → MinIO. Prod sets these empty in .env so boto3 hits real
+      # AWS S3 with the EC2 instance role. `-` (not `:-`) keeps an explicit
+      # empty value from .env instead of falling back to the MinIO default.
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY-minioadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY-minioadmin}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
