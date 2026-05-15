@@ -298,14 +298,25 @@ function ChatPageInner() {
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !itemId) return;
+    const files = e.target.files;
+    if (!files || files.length === 0 || !itemId) return;
     setUploading(true);
-    const localUrl = URL.createObjectURL(file);
-    setMessages((prev) => [...prev, { role: "user", content: "", imageUrl: localUrl }]);
+    const fileList = Array.from(files);
+    setMessages((prev) => [
+      ...prev,
+      ...fileList.map((f) => ({
+        role: "user" as const,
+        content: "",
+        imageUrl: URL.createObjectURL(f),
+      })),
+    ]);
     try {
-      await api.uploadImage(file, itemId);
-      const reply = await api.sendMessage("I've uploaded the image.", itemId);
+      // Upload sequentially so each image gets a stable, increasing position.
+      for (const file of fileList) {
+        await api.uploadImage(file, itemId);
+      }
+      const noun = fileList.length === 1 ? "a photo" : `${fileList.length} photos`;
+      const reply = await api.sendMessage(`I've uploaded ${noun}.`, itemId);
       if (reply.item_id) setItemId(reply.item_id);
       setMessages((prev) => [...prev, { role: "assistant", content: reply.content, needsImage: reply.needs_image }]);
       if (reply.intake_complete && reply.item_id) startPolling(reply.item_id);
@@ -381,7 +392,7 @@ function ChatPageInner() {
                         disabled={uploading || !itemId}
                       >
                         <Camera size={14} />
-                        {uploading ? "Uploading…" : "Upload photo"}
+                        {uploading ? "Uploading…" : "Upload photos"}
                       </Button>
                     </div>
                   )}
@@ -396,7 +407,7 @@ function ChatPageInner() {
             <div ref={bottomRef} />
           </div>
 
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={handleFileChange} />
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple className="hidden" onChange={handleFileChange} />
 
           <form onSubmit={sendMessage} className="border-t border-border bg-card px-4 sm:px-6 py-4 flex gap-3">
             <Input

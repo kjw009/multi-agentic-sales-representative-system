@@ -130,9 +130,48 @@ async def test_plan_next_step_requests_image_once_required_fields_exist():
 
     reply, needs_image, complete = await _plan_next_step(session, item.id)
 
-    assert "Please upload clear photos" in reply
+    assert "Please upload at least 3" in reply
     assert needs_image is True
     assert complete is False
+
+
+@pytest.mark.asyncio
+async def test_plan_next_step_keeps_requesting_images_below_minimum():
+    """One or two photos is not enough — intake stays open until 3 exist."""
+    item = Item(
+        id=uuid.uuid4(),
+        seller_id=uuid.uuid4(),
+        name="Apple MacBook Air 13",
+        category="Laptops",
+        condition=ItemCondition.good,
+        description="Very good overall condition.",
+    )
+    session = _FakeSession(item=item, image_count=1)
+
+    reply, needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert "2 more" in reply
+    assert needs_image is True
+    assert complete is False
+
+
+@pytest.mark.asyncio
+async def test_plan_next_step_completes_once_minimum_images_uploaded():
+    """Intake completes only after at least 3 photos are uploaded."""
+    item = Item(
+        id=uuid.uuid4(),
+        seller_id=uuid.uuid4(),
+        name="Apple MacBook Air 13",
+        category="Laptops",
+        condition=ItemCondition.good,
+        description="Very good overall condition.",
+    )
+    session = _FakeSession(item=item, image_count=3)
+
+    _reply, needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert needs_image is False
+    assert complete is True
 
 
 @pytest.mark.asyncio

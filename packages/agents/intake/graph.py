@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 
 _CATEGORIES_STR = ", ".join(CATEGORY_LIST)
 
+# Minimum number of photos required before intake is allowed to complete.
+# A strong eBay listing needs several angles (exterior, wear/marks, accessories),
+# so we keep asking until the seller has uploaded at least this many.
+_MIN_LISTING_IMAGES = 3
+
 SYSTEM_PROMPT = f"""\
 You are an AI assistant helping sellers create optimised eBay listings for \
 second-hand items. Your goal is to gather enough detail to produce an accurate, \
@@ -92,7 +97,8 @@ Follow this exact sequence:
 4. Present the generated title and description to the seller. Ask if they'd \
    like any changes. If they request changes, call generate_listing again.
 5. Once the seller approves (or if the listing looks good), call request_image \
-   to ask for photos.
+   to ask for photos. Always ask for at least 3 photos from different angles — \
+   a single photo is not enough for a good listing.
 6. After the image request, call mark_intake_complete.
 
 ═══ RULES ═══
@@ -237,15 +243,28 @@ async def _plan_next_step(
                 return prompt, False, False
         return None, False, False
 
-    image_count = await session.scalar(
-        select(func.count()).select_from(ItemImage).where(ItemImage.item_id == item_id)
+    image_count = (
+        await session.scalar(
+            select(func.count()).select_from(ItemImage).where(ItemImage.item_id == item_id)
+        )
+        or 0
     )
-    has_image = bool(image_count)
 
-    if not has_image:
+    if image_count < _MIN_LISTING_IMAGES:
+        if image_count == 0:
+            return (
+                f"Please upload at least {_MIN_LISTING_IMAGES} clear photos of the item: "
+                "exterior, screen, any wear or marks, and the charger or accessories if "
+                "you have them. More angles make for a stronger listing.",
+                True,
+                False,
+            )
+        remaining = _MIN_LISTING_IMAGES - image_count
+        photo_word = "photo" if remaining == 1 else "photos"
         return (
-            "Please upload clear photos of the item: exterior, screen, any wear or marks, "
-            "and the charger or accessories if you have them.",
+            f"Thanks — that's {image_count} so far. Please upload {remaining} more "
+            f"{photo_word} (at least {_MIN_LISTING_IMAGES} in total) so buyers can see "
+            "the item from every angle.",
             True,
             False,
         )

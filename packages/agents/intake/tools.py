@@ -311,13 +311,20 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "request_image",
-            "description": "Ask the seller to upload a photo of the item.",
+            "description": (
+                "Ask the seller to upload photos of the item. Always ask for at "
+                "least 3 photos from different angles — a single photo is not "
+                "enough for a good listing."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "Instructions for which photo to upload.",
+                        "description": (
+                            "Instructions for which photos to upload — request at "
+                            "least 3 covering different angles and any wear or marks."
+                        ),
                     }
                 },
                 "required": ["prompt"],
@@ -360,7 +367,7 @@ TOOL_DEFINITIONS = [
                 "(2) gathered all category enrinchment details, "
                 "(3) called generate_listing to produce an optimised title/description, "
                 "(4) the seller has approved or you have presented the listing, and "
-                "(5) asked for at least one image."
+                "(5) asked the seller to upload at least 3 photos."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
