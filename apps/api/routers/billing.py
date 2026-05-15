@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from typing import Any
 
 import stripe
@@ -123,6 +124,7 @@ async def stripe_webhook(
         period_end: int | None = data.get("current_period_end")
 
         from sqlalchemy import select
+
         from packages.db.models import Seller as SellerModel
 
         db_seller = await session.scalar(
@@ -142,8 +144,8 @@ async def stripe_webhook(
         db_seller.subscription_status = new_status
         db_seller.stripe_subscription_id = data.get("id")
         if period_end:
-            from datetime import datetime, timezone
-            db_seller.current_period_end = datetime.fromtimestamp(period_end, tz=timezone.utc)
+            from datetime import datetime
+            db_seller.current_period_end = datetime.fromtimestamp(period_end, tz=UTC)
 
         if new_status in (SubscriptionStatus.active, SubscriptionStatus.trialing):
             db_seller.plan = PlanTier.pro
