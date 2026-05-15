@@ -45,3 +45,15 @@ async def get_current_seller(
     # Set the current seller ID in the session context (for RLS policies)
     await set_current_seller_id(session, seller.id)
     return seller
+
+
+async def require_not_demo(
+    seller: Seller = Depends(get_current_seller),
+) -> Seller:
+    """Block write operations for the shared demo account."""
+    if seller.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo account is read-only.",
+        )
+    return seller

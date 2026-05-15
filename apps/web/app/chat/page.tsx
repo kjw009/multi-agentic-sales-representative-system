@@ -2,8 +2,15 @@
 
 import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { Camera, Send } from "lucide-react";
 import { api, PricingResult, ListingStatus } from "@/lib/api";
+import { AppShell } from "@/components/AppShell";
+import { Toast, ToastType } from "@/components/Toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface Message {
   role: "user" | "assistant";
@@ -13,24 +20,25 @@ interface Message {
 }
 
 const POLL_INTERVAL_MS = 3000;
-const MAX_POLL_ATTEMPTS = 40; // 40 × 3s = 2 min max wait
+const MAX_POLL_ATTEMPTS = 40;
 
 function fmt(n: number) {
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+  return n.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
 }
+
+/* ── Pricing panel ──────────────────────────────────────────────────── */
 
 function ConfidenceBar({ score }: { score: number }) {
   const pct = Math.round(score * 100);
-  const color =
-    pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-400" : "bg-rose-400";
+  const color = pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-400" : "bg-rose-400";
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-xs text-gray-500">
+      <div className="flex justify-between text-xs text-muted-foreground">
         <span>Confidence</span>
         <span>{pct}%</span>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-gray-100">
-        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      <div className="h-1.5 w-full rounded-full bg-muted">
+        <div className={`h-1.5 rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -39,204 +47,134 @@ function ConfidenceBar({ score }: { score: number }) {
 function PricingPanel({ pricing }: { pricing: PricingResult }) {
   const hasCI = pricing.price_low > 0 && pricing.price_high > 0;
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 space-y-4 shadow-sm">
-      {/* Headline price */}
-      <div>
-        <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-1">
-          Recommended price
-        </p>
-        <p className="text-3xl font-semibold text-gray-900">
-          {fmt(pricing.recommended_price)}
-        </p>
-        {hasCI && (
-          <p className="text-sm text-gray-500 mt-0.5">
-            Range&nbsp;
-            <span className="text-gray-700 font-medium">{fmt(pricing.price_low)}</span>
-            &nbsp;–&nbsp;
-            <span className="text-gray-700 font-medium">{fmt(pricing.price_high)}</span>
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            Recommended price
+          </p>
+          <p className="text-3xl font-semibold">{fmt(pricing.recommended_price)}</p>
+          {hasCI && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Range{" "}
+              <span className="text-foreground font-medium">{fmt(pricing.price_low)}</span>
+              {" – "}
+              <span className="text-foreground font-medium">{fmt(pricing.price_high)}</span>
+            </p>
+          )}
+        </div>
+
+        <ConfidenceBar score={pricing.confidence_score} />
+
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Walk-away floor</span>
+          <span className="font-medium">{fmt(pricing.min_acceptable_price)}</span>
+        </div>
+
+        {pricing.comparables.length > 0 && (
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+              Comparables ({pricing.comparables.length})
+            </p>
+            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              {pricing.comparables.map((c) => (
+                <a
+                  key={c.item_id}
+                  href={c.listing_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-start justify-between gap-3 rounded-xl border border-border px-3 py-2 hover:bg-accent/60 transition-colors group"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs truncate group-hover:text-foreground text-muted-foreground">{c.title}</p>
+                    <p className="text-xs text-muted-foreground/60 mt-0.5">{c.condition}</p>
+                  </div>
+                  <p className="text-sm font-medium shrink-0">{fmt(c.price)}</p>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {pricing.comparables.length === 0 && (
+          <p className="text-xs text-muted-foreground italic">
+            No live comparables — price based on model prediction only.
           </p>
         )}
-      </div>
-
-      <ConfidenceBar score={pricing.confidence_score} />
-
-      {/* Floor price */}
-      <div className="flex justify-between text-sm">
-        <span className="text-gray-500">Walk-away floor</span>
-        <span className="font-medium text-gray-700">
-          {fmt(pricing.min_acceptable_price)}
-        </span>
-      </div>
-
-      {/* Comparables */}
-      {pricing.comparables.length > 0 && (
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-2">
-            Comparables ({pricing.comparables.length})
-          </p>
-          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-            {pricing.comparables.map((c) => (
-              <a
-                key={c.item_id}
-                href={c.listing_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-start justify-between gap-3 rounded-xl border border-gray-100 px-3 py-2 hover:bg-gray-50 transition-colors group"
-              >
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-700 truncate group-hover:text-gray-900">
-                    {c.title}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">{c.condition}</p>
-                </div>
-                <p className="text-sm font-medium text-gray-900 shrink-0">
-                  {fmt(c.price)}
-                </p>
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {pricing.comparables.length === 0 && (
-        <p className="text-xs text-gray-400 italic">
-          No live comparables — price based on model prediction only.
-        </p>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
-function PricingSpinner() {
+function PricingPanelSkeleton() {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 space-y-3 shadow-sm">
-      <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
-        Pricing your item…
-      </p>
-      <div className="flex items-center gap-2">
-        <div className="h-2 w-2 rounded-full bg-gray-300 animate-bounce [animation-delay:0ms]" />
-        <div className="h-2 w-2 rounded-full bg-gray-300 animate-bounce [animation-delay:150ms]" />
-        <div className="h-2 w-2 rounded-full bg-gray-300 animate-bounce [animation-delay:300ms]" />
-      </div>
-      <p className="text-xs text-gray-400">Searching eBay comparables…</p>
-    </div>
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="h-8 w-24" />
+        </div>
+        <Skeleton className="h-2 w-full" />
+        <div className="flex justify-between">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-16" />
+        </div>
+        <p className="text-xs text-muted-foreground">Searching eBay comparables…</p>
+      </CardContent>
+    </Card>
   );
 }
+
+/* ── Listing status panel ───────────────────────────────────────────── */
 
 function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
-  const statusConfig = {
-    publishing: {
-      label: "Publishing to eBay…",
-      color: "bg-amber-50 border-amber-200 text-amber-700",
-      icon: (
-        <div className="flex items-center gap-1.5">
-          <div className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-          <span className="text-xs font-medium">In progress</span>
-        </div>
-      ),
-    },
-    live: {
-      label: "Live on eBay",
-      color: "bg-emerald-50 border-emerald-200 text-emerald-700",
-      icon: (
-        <div className="flex items-center gap-1.5">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-          <span className="text-xs font-medium">Active</span>
-        </div>
-      ),
-    },
-    ended: {
-      label: "Listing ended",
-      color: "bg-gray-50 border-gray-200 text-gray-500",
-      icon: <span className="text-xs font-medium">Ended</span>,
-    },
-    error: {
-      label: "Publishing failed",
-      color: "bg-rose-50 border-rose-200 text-rose-700",
-      icon: (
-        <div className="flex items-center gap-1.5">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-          <span className="text-xs font-medium">Error</span>
-        </div>
-      ),
-    },
-    needs_specifics: {
-      label: listing.required_specifics?.length
-        ? `eBay needs more info: ${listing.required_specifics.join(", ")}`
-        : "eBay needs more info",
-      color: "bg-blue-50 border-blue-200 text-blue-700",
-      icon: (
-        <div className="flex items-center gap-1.5">
-          <div className="h-2 w-2 rounded-full bg-blue-400" />
-          <span className="text-xs font-medium">Action required</span>
-        </div>
-      ),
-    },
+  const badgeVariant: Record<string, "success" | "warning" | "destructive" | "info" | "secondary"> = {
+    live: "success",
+    publishing: "warning",
+    error: "destructive",
+    needs_specifics: "info",
+    ended: "secondary",
   };
-
-  // Fallback prevents the page from crashing if the API ever returns a
-  // status that isn't in the union (e.g. after a backend deploy that
-  // adds a new state before the frontend ships).
-  const config = statusConfig[listing.status] ?? {
-    label: `Unknown status: ${listing.status}`,
-    color: "bg-gray-50 border-gray-200 text-gray-500",
-    icon: <span className="text-xs font-medium">—</span>,
+  const labels: Record<string, string> = {
+    live: "Live on eBay",
+    publishing: "Publishing…",
+    error: "Publish failed",
+    needs_specifics: listing.required_specifics?.length
+      ? `eBay needs: ${listing.required_specifics.join(", ")}`
+      : "More info needed",
+    ended: "Listing ended",
   };
 
   return (
-    <div className={`rounded-2xl border p-4 space-y-3 shadow-sm ${config.color}`}>
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">{config.label}</p>
-        {config.icon}
-      </div>
-
-      {listing.posted_price != null && (
-        <p className="text-xs opacity-75">
-          Listed at <span className="font-medium">{fmt(listing.posted_price)}</span>
-        </p>
-      )}
-
-      {listing.url && (
-        <a
-          href={listing.url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs font-medium underline underline-offset-2 hover:opacity-80 transition-opacity"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101" />
-          </svg>
-          View on eBay
-        </a>
-      )}
-    </div>
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">{labels[listing.status] ?? listing.status}</p>
+          <Badge variant={badgeVariant[listing.status] ?? "secondary"}>
+            {listing.status}
+          </Badge>
+        </div>
+        {listing.posted_price != null && (
+          <p className="text-xs text-muted-foreground">
+            Listed at <span className="font-medium text-foreground">{fmt(listing.posted_price)}</span>
+          </p>
+        )}
+        {listing.url && (
+          <a
+            href={listing.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline underline-offset-2"
+          >
+            View on eBay →
+          </a>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
-/* ── Toast notification ────────────────────────────────────────────── */
-
-function Toast({ message, type, onClose }: { message: string; type: "success" | "error" | "info"; onClose: () => void }) {
-  const bg = type === "success" ? "bg-emerald-600" : type === "error" ? "bg-rose-600" : "bg-blue-600";
-
-  useEffect(() => {
-    const t = setTimeout(onClose, 5000);
-    return () => clearTimeout(t);
-  }, [onClose]);
-
-  return (
-    <div className={`fixed top-4 right-4 z-50 ${bg} text-white rounded-xl px-5 py-3 shadow-lg flex items-center gap-3 animate-[slideIn_0.3s_ease-out]`}>
-      <span className="text-sm font-medium">{message}</span>
-      <button onClick={onClose} className="text-white/70 hover:text-white text-lg leading-none">&times;</button>
-    </div>
-  );
-}
-
-/* ── Main page ─────────────────────────────────────────────────────── */
+/* ── Main page ──────────────────────────────────────────────────────── */
 
 function ChatPageInner() {
   const router = useRouter();
@@ -247,60 +185,40 @@ function ChatPageInner() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [connectingEbay, setConnectingEbay] = useState(false);
-
-  // eBay connection state
   const [ebayConnected, setEbayConnected] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
-
-  // Pricing state
+  const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
   const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
   const [pricingPending, setPricingPending] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollAttempts = useRef(0);
-
-  // Listing state
   const [listingStatus, setListingStatus] = useState<ListingStatus | null>(null);
   const [listingPending, setListingPending] = useState(false);
 
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollAttempts = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!localStorage.getItem("token")) {
-      router.push("/login");
-      return;
-    }
+    if (!localStorage.getItem("token")) { router.push("/login"); return; }
     setMessages([{
       role: "assistant",
       content: "Hi! I'm your AI selling assistant. Tell me about an item you'd like to sell — what is it?",
     }]);
-
-    // Check eBay connection status on mount
-    api.ebayStatus()
-      .then((res) => setEbayConnected(res.connected))
-      .catch(() => {}); // Silently fail — not critical
-
-    // Handle eBay OAuth callback query params
-    const ebayParam = searchParams.get("ebay");
-    if (ebayParam === "connected") {
+    api.ebayStatus().then((r) => setEbayConnected(r.connected)).catch(() => {});
+    const p = searchParams.get("ebay");
+    if (p === "connected") {
       setEbayConnected(true);
-      setToast({ message: "eBay account connected successfully!", type: "success" });
-      // Clean up the URL without reloading
+      setToast({ message: "eBay account connected!", type: "success" });
       window.history.replaceState({}, "", "/chat");
-    } else if (ebayParam === "declined") {
-      setToast({ message: "eBay connection was declined. You can try again anytime.", type: "info" });
+    } else if (p === "declined") {
+      setToast({ message: "eBay connection declined.", type: "info" });
       window.history.replaceState({}, "", "/chat");
-    } else if (ebayParam === "error") {
-      setToast({ message: "Something went wrong connecting to eBay. Please try again.", type: "error" });
+    } else if (p === "error") {
+      setToast({ message: "eBay connection error. Try again.", type: "error" });
       window.history.replaceState({}, "", "/chat");
     }
   }, [router, searchParams]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  // Cleanup polling on unmount
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   const startPolling = useCallback((id: string) => {
@@ -309,7 +227,7 @@ function ChatPageInner() {
     setPricingPending(true);
 
     pollRef.current = setInterval(async () => {
-      pollAttempts.current += 1;
+      pollAttempts.current++;
       if (pollAttempts.current > MAX_POLL_ATTEMPTS) {
         clearInterval(pollRef.current!);
         setPricingPending(false);
@@ -317,29 +235,21 @@ function ChatPageInner() {
         return;
       }
       try {
-        // Poll pricing
         if (!pricingResult) {
           const result = await api.getPricing(id);
           if (result) {
             setPricingPending(false);
             setPricingResult(result);
-            // Pricing done → now start watching for listing status
             setListingPending(true);
           }
         }
-
-        // Poll listing status (runs after pricing completes)
         const ls = await api.getListingStatus(id);
         if (ls) {
           setListingStatus(ls);
-          // When the publisher parks the item awaiting more info, surface
-          // the question in the chat so the seller has something to reply
-          // to. Their next message hits /agent/intake/message, which routes
-          // through `_plan_next_step` and continues the flow naturally.
           if (ls.status === "needs_specifics") {
             const next = ls.required_specifics?.[0];
             if (next) {
-              const promptText = `To finish publishing on eBay I just need the ${next} of your item — could you tell me?`;
+              const promptText = `To finish publishing on eBay I just need the ${next} — could you tell me?`;
               setMessages((prev) =>
                 prev.length > 0 && prev[prev.length - 1].content === promptText
                   ? prev
@@ -347,22 +257,12 @@ function ChatPageInner() {
               );
             }
           }
-          if (
-            ls.status === "live" ||
-            ls.status === "error" ||
-            ls.status === "ended" ||
-            ls.status === "needs_specifics"
-          ) {
+          if (["live","error","ended","needs_specifics"].includes(ls.status)) {
             setListingPending(false);
-            // If listing is live/error/ended and pricing is also done, stop polling
-            if (!pricingPending) {
-              clearInterval(pollRef.current!);
-            }
+            if (!pricingPending) clearInterval(pollRef.current!);
           }
         }
-      } catch {
-        // swallow — keep polling
-      }
+      } catch { /* keep polling */ }
     }, POLL_INTERVAL_MS);
   }, [pricingResult, pricingPending]);
 
@@ -372,7 +272,7 @@ function ChatPageInner() {
       const { authorization_url } = await api.ebayConnect();
       window.location.href = authorization_url;
     } catch (err: unknown) {
-      setToast({ message: err instanceof Error ? err.message : "Failed to start eBay connection", type: "error" });
+      setToast({ message: err instanceof Error ? err.message : "Failed", type: "error" });
       setConnectingEbay(false);
     }
   }
@@ -381,22 +281,14 @@ function ChatPageInner() {
     e.preventDefault();
     const content = input.trim();
     if (!content || loading) return;
-
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content }]);
     setLoading(true);
-
     try {
       const reply = await api.sendMessage(content, itemId);
       if (reply.item_id) setItemId(reply.item_id);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: reply.content, needsImage: reply.needs_image },
-      ]);
-      // Intake just finished — start polling for pricing
-      if (reply.intake_complete && reply.item_id) {
-        startPolling(reply.item_id);
-      }
+      setMessages((prev) => [...prev, { role: "assistant", content: reply.content, needsImage: reply.needs_image }]);
+      if (reply.intake_complete && reply.item_id) startPolling(reply.item_id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error";
       setMessages((prev) => [...prev, { role: "assistant", content: `⚠ ${msg}` }]);
@@ -408,22 +300,15 @@ function ChatPageInner() {
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !itemId) return;
-
     setUploading(true);
     const localUrl = URL.createObjectURL(file);
     setMessages((prev) => [...prev, { role: "user", content: "", imageUrl: localUrl }]);
-
     try {
       await api.uploadImage(file, itemId);
       const reply = await api.sendMessage("I've uploaded the image.", itemId);
       if (reply.item_id) setItemId(reply.item_id);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: reply.content, needsImage: reply.needs_image },
-      ]);
-      if (reply.intake_complete && reply.item_id) {
-        startPolling(reply.item_id);
-      }
+      setMessages((prev) => [...prev, { role: "assistant", content: reply.content, needsImage: reply.needs_image }]);
+      if (reply.intake_complete && reply.item_id) startPolling(reply.item_id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Upload failed";
       setMessages((prev) => [...prev, { role: "assistant", content: `⚠ ${msg}` }]);
@@ -433,191 +318,107 @@ function ChatPageInner() {
     }
   }
 
-  function logout() {
-    localStorage.clear();
-    router.push("/login");
-  }
-
   const showPricingPanel = pricingResult !== null || pricingPending;
   const showListingPanel = listingStatus !== null || listingPending;
 
-  return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Toast notification */}
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-
-      {/* Sidebar */}
-      <aside className="w-56 bg-white border-r border-gray-200 flex flex-col p-4 gap-3 shrink-0">
-        <p className="font-semibold text-sm">SalesRep</p>
-        <nav className="space-y-1 mt-4">
-          <Link
-            href="/chat"
-            className="block w-full text-left text-sm bg-blue-50 text-blue-700 font-medium rounded-lg px-3 py-2 transition-colors"
-          >
-            Chat
-          </Link>
-          <Link
-            href="/inbox"
-            className="block w-full text-left text-sm text-gray-600 hover:bg-gray-50 rounded-lg px-3 py-2 transition-colors"
-          >
-            Inbox
-          </Link>
-          <Link
-            href="/settings"
-            className="block w-full text-left text-sm text-gray-600 hover:bg-gray-50 rounded-lg px-3 py-2 transition-colors"
-          >
-            Settings
-          </Link>
-        </nav>
-
-        <div className="flex-1" />
-
-        {/* eBay connection button / status */}
-        {ebayConnected ? (
-          <div className="w-full text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2">
-            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-            <span>eBay Connected</span>
-          </div>
-        ) : (
-          <button
-            onClick={handleConnectEbay}
-            disabled={connectingEbay}
-            className="w-full text-sm bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {connectingEbay ? "Redirecting…" : "Connect eBay"}
-          </button>
-        )}
-
-        <button
-          onClick={logout}
-          className="w-full text-left text-sm text-gray-400 hover:text-gray-700 px-1 transition-colors"
-        >
-          Log out
-        </button>
-      </aside>
-
-      {/* Chat */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className="max-w-lg space-y-2">
-                {m.imageUrl && (
-                  <div className="flex justify-end">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={m.imageUrl}
-                      alt="uploaded"
-                      className="max-h-48 rounded-xl border border-gray-200 object-cover"
-                    />
-                  </div>
-                )}
-                {m.content && (
-                  <div
-                    className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                      m.role === "user"
-                        ? "bg-gray-900 text-white rounded-br-sm"
-                        : "bg-white border border-gray-200 text-gray-800 rounded-bl-sm"
-                    }`}
-                  >
-                    {m.content}
-                  </div>
-                )}
-                {m.needsImage && (
-                  <div className="flex justify-start">
-                    <button
-                      onClick={() => fileRef.current?.click()}
-                      disabled={uploading || !itemId}
-                      className="flex items-center gap-2 text-sm bg-gray-100 hover:bg-gray-200 border border-gray-200 rounded-xl px-4 py-2 disabled:opacity-50 transition-colors"
-                    >
-                      {uploading ? "Uploading…" : "📷 Upload photo"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {(loading || uploading) && (
-            <div className="flex justify-start">
-              <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-gray-400">
-                …
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
+  const panel = (showPricingPanel || showListingPanel) ? (
+    <div className="space-y-6">
+      {showPricingPanel && (
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">Pricing</p>
+          {pricingPending && !pricingResult ? <PricingPanelSkeleton /> : null}
+          {pricingResult ? <PricingPanel pricing={pricingResult} /> : null}
         </div>
-
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/jpeg,image/png,image/gif,image/webp"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-
-        <form
-          onSubmit={sendMessage}
-          className="border-t border-gray-200 bg-white px-6 py-4 flex gap-3"
-        >
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe what you want to sell…"
-            className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-          />
-          <button
-            type="submit"
-            disabled={loading || uploading || !input.trim()}
-            className="bg-gray-900 text-white rounded-xl px-4 py-2 text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors"
-          >
-            Send
-          </button>
-        </form>
-      </main>
-
-      {/* Pricing + Listing panel — slides in once intake completes */}
-      {(showPricingPanel || showListingPanel) && (
-        <aside className="w-80 shrink-0 bg-gray-50 border-l border-gray-200 p-5 overflow-y-auto space-y-6">
-          {/* Pricing section */}
-          {showPricingPanel && (
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-4">
-                Pricing
-              </p>
-              {pricingPending && !pricingResult && <PricingSpinner />}
-              {pricingResult && <PricingPanel pricing={pricingResult} />}
-            </div>
-          )}
-
-          {/* Listing section */}
-          {(showListingPanel || listingStatus) && (
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-4">
-                Listing
-              </p>
-              {listingPending && !listingStatus && (
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-gray-300 animate-pulse" />
-                    <p className="text-xs text-gray-400">Preparing eBay listing…</p>
-                  </div>
-                </div>
-              )}
-              {listingStatus && <ListingStatusPanel listing={listingStatus} />}
-            </div>
-          )}
-        </aside>
+      )}
+      {showListingPanel && (
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">Listing</p>
+          {listingPending && !listingStatus ? (
+            <Card><CardContent className="p-4"><Skeleton className="h-4 w-40" /></CardContent></Card>
+          ) : null}
+          {listingStatus ? <ListingStatusPanel listing={listingStatus} /> : null}
+        </div>
       )}
     </div>
+  ) : undefined;
+
+  return (
+    <>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <AppShell
+        panel={panel}
+        ebayConnected={ebayConnected}
+        onConnectEbay={handleConnectEbay}
+        connectingEbay={connectingEbay}
+      >
+        {/* Messages */}
+        <div className="flex flex-col h-screen">
+          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-4">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className="max-w-lg space-y-2">
+                  {m.imageUrl && (
+                    <div className="flex justify-end">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={m.imageUrl} alt="upload" className="max-h-48 rounded-xl border border-border object-cover" />
+                    </div>
+                  )}
+                  {m.content && (
+                    <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                      m.role === "user"
+                        ? "bg-primary text-primary-foreground rounded-br-sm"
+                        : "bg-card border border-border text-foreground rounded-bl-sm"
+                    }`}>
+                      {m.content}
+                    </div>
+                  )}
+                  {m.needsImage && (
+                    <div className="flex justify-start">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileRef.current?.click()}
+                        disabled={uploading || !itemId}
+                      >
+                        <Camera size={14} />
+                        {uploading ? "Uploading…" : "Upload photo"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {(loading || uploading) && (
+              <div className="flex justify-start">
+                <div className="bg-card border border-border rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-muted-foreground">…</div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="hidden" onChange={handleFileChange} />
+
+          <form onSubmit={sendMessage} className="border-t border-border bg-card px-4 sm:px-6 py-4 flex gap-3">
+            <Input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Describe what you want to sell…"
+              className="flex-1 h-10"
+            />
+            <Button type="submit" disabled={loading || uploading || !input.trim()} size="sm">
+              <Send size={14} />
+              <span className="hidden sm:inline">Send</span>
+            </Button>
+          </form>
+        </div>
+      </AppShell>
+    </>
   );
 }
 
 export default function ChatPage() {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-gray-50 text-gray-400">Loading…</div>}>
+    <Suspense fallback={<div className="flex h-screen items-center justify-center text-muted-foreground">Loading…</div>}>
       <ChatPageInner />
     </Suspense>
   );

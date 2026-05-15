@@ -16,6 +16,8 @@ from apps.api.deps import get_current_seller
 from packages.db.models import AutonomyLevel, Seller
 from packages.db.session import get_session
 
+_DEMO_WRITE_FIELDS = {"autonomy_level", "stale_threshold_days", "max_reprice_count"}
+
 # get_current_seller and get_session may return objects from different
 # SQLAlchemy sessions when dependencies are overridden in tests. In production
 # they share a session, but the handlers below stay robust by re-fetching the
@@ -90,3 +92,23 @@ async def update_seller_settings(
     await session.commit()
     await session.refresh(db_seller)
     return _serialise(db_seller)
+
+
+@router.get("/seller/onboarding-status")
+async def get_onboarding_status(
+    seller: Seller = Depends(get_current_seller),
+) -> bool:
+    return bool(seller.onboarding_completed)
+
+
+@router.post("/seller/complete-onboarding")
+async def complete_onboarding(
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, bool]:
+    db_seller = await session.get(Seller, seller.id)
+    if db_seller is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Seller not found")
+    db_seller.onboarding_completed = True
+    await session.commit()
+    return {"ok": True}

@@ -43,6 +43,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from packages.db.models import (
+    ComparableListing as ComparableListingRow,
+    PricePrediction as PricePredictionRow,
+)
+from packages.ml.registry import get_active_model_version_id
 from packages.agents.pricing.comparable_filter import (
     extract_keywords_from_comparables,
     validate_comparables,
@@ -149,10 +154,10 @@ def _condition_ord(item: Item) -> int:
 
 
 @traceable(name="pricing_model_predict", run_type="tool")
-def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
+def _model_predict(item: Item, comparable_prices: list[float]) -> tuple[float | None, dict | None]:
     # Calculate the predicted price olely on the historical ML model
     if _MODEL is None or _META is None or _PCA_TITLE is None or _PCA_DESC is None:
-        return None
+        return None, None
 
     st = _get_sentence_model()
 
@@ -230,11 +235,11 @@ def _model_predict(item: Item, comparable_prices: list[float]) -> float | None:
         if cat_bounds:
             pred = float(np.clip(pred, cat_bounds["floor"], cat_bounds["ceiling"]))
 
-        return pred
+        return pred, feat
 
     except Exception:
         logger.exception("v3 prediction failed — falling back to comparable median")
-        return None
+        return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +410,54 @@ async def _collect_comparables(
 # ---------------------------------------------------------------------------
 
 
+async def _persist_prediction(
+    *,
+    item: "Item",
+    seller_id: uuid.UUID,
+    result: "PricingResult",
+    model_pred: float | None,
+    model_features: dict | None,
+    comparable_median: float | None,
+    validated_comparables: list,
+    session: AsyncSession,
+) -> None:
+    """Write a PricePrediction row + ComparableListing rows for the retraining loop."""
+    try:
+        version_id = await get_active_model_version_id(session)
+        prediction = PricePredictionRow(
+            seller_id=seller_id,
+            item_id=item.id,
+            model_version_id=version_id,
+            features=model_features,
+            features_partial=(model_features is None),
+            model_prediction=round(model_pred, 2) if model_pred is not None else None,
+            comparable_median=round(comparable_median, 2) if comparable_median is not None else None,
+            recommended_price=result.recommended_price,
+            min_acceptable_price=result.min_acceptable_price,
+            confidence_score=result.confidence_score,
+        )
+        session.add(prediction)
+        await session.flush()  # get prediction.id without committing
+
+        for c in validated_comparables:
+            session.add(
+                ComparableListingRow(
+                    price_prediction_id=prediction.id,
+                    seller_id=seller_id,
+                    external_item_id=c.item_id,
+                    title=c.title,
+                    price=c.price,
+                    currency=c.currency,
+                    condition=c.condition,
+                    listing_url=c.listing_url,
+                    relevance="validated",
+                )
+            )
+        # The caller (pipeline) commits the session; we just stage the rows.
+    except Exception:
+        logger.exception("[pricing] Failed to persist prediction — continuing without logging")
+
+
 @traceable(name="pricing_agent", run_type="chain")
 async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -> PricingResult:
     """Agent 2 — Pricing (v3 model).
@@ -436,7 +489,7 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
     comparable_median = statistics.median(prices) if prices else None
 
     # Get price prediction from historical ML model
-    model_pred = _model_predict(row, prices)
+    model_pred, model_features = _model_predict(row, prices)
 
     # Weighted average of model prediction and comparable median
     if comparable_median is not None and model_pred is not None:
@@ -487,7 +540,7 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         for c in validated
     ]
 
-    return PricingResult(
+    result = PricingResult(
         item_id=item_id,
         recommended_price=round(recommended, 2),
         confidence_score=round(confidence, 2),
@@ -496,3 +549,17 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         price_high=round(price_high, 2),
         comparables=comparables,
     )
+
+    # Phase 6.0 — persist prediction for the retraining loop
+    await _persist_prediction(
+        item=row,
+        seller_id=seller_id,
+        result=result,
+        model_pred=model_pred,
+        model_features=model_features,
+        comparable_median=comparable_median,
+        validated_comparables=validated,
+        session=session,
+    )
+
+    return result

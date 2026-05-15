@@ -116,6 +116,12 @@ export interface DraftStats {
   edit_rate: number;
 }
 
+export interface BillingStatus {
+  plan: "free" | "pro";
+  subscription_status: "none" | "trialing" | "active" | "past_due" | "canceled";
+  current_period_end: string | null;
+}
+
 export const api = {
   signup: (email: string, password: string) =>
     request<TokenResponse>("/auth/signup", {
@@ -128,6 +134,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+
+  demoLogin: () =>
+    request<TokenResponse>("/auth/demo"),
+
+  getOnboardingStatus: () =>
+    request<boolean>("/settings/seller/onboarding-status"),
 
   ebayConnect: () =>
     request<{ authorization_url: string }>("/auth/ebay/connect"),
@@ -185,9 +197,22 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  completeOnboarding: () =>
+    request<{ ok: boolean }>("/settings/seller/complete-onboarding", {
+      method: "POST",
+    }),
+
   getRepriceHistory: () =>
     request<RepriceEvent[]>("/listings/reprice-history"),
 
   getDraftStats: () => request<DraftStats>("/conversations/stats"),
+
+  getBillingStatus: () => request<BillingStatus>("/billing/status"),
+
+  createCheckoutSession: () =>
+    request<{ url: string }>("/billing/checkout-session", { method: "POST" }),
+
+  createPortalSession: () =>
+    request<{ url: string }>("/billing/portal-session", { method: "POST" }),
 };
 

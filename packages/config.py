@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     langsmith_api_key: str = ""
     langsmith_project: str = "salesrep"
 
+    # ── Stripe billing ─────────────────────────────────────────────────────
+    billing_enabled: bool = False
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_id_pro: str = ""  # price_xxx from Stripe dashboard
+    stripe_publishable_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
