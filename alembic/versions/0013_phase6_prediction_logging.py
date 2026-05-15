@@ -28,9 +28,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "CREATE TYPE IF NOT EXISTS model_status AS ENUM ('training', 'shadow', 'active', 'archived', 'failed')"
-    )
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE model_status AS ENUM ('training', 'shadow', 'active', 'archived', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
 
     op.create_table(
         "model_versions",
