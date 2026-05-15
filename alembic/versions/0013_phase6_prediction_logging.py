@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import ENUM as PgENUM
+from sqlalchemy.dialects.postgresql import ENUM
 
 from alembic import op
 
@@ -44,7 +44,7 @@ def upgrade() -> None:
         sa.Column("training_row_count", sa.Integer(), nullable=True),
         sa.Column(
             "status",
-            PgENUM(
+            ENUM(
                 "training",
                 "shadow",
                 "active",
