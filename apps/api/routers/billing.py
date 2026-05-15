@@ -73,6 +73,8 @@ async def create_checkout_session(
             "metadata": {"seller_id": str(db_seller.id)},
         }
     )
+    if not checkout.url:
+        raise HTTPException(status_code=500, detail="Stripe did not return a checkout URL.")
     return {"url": checkout.url}
 
 
@@ -92,6 +94,8 @@ async def create_portal_session(
     portal = client.billing_portal.sessions.create(
         params={"customer": db_seller.stripe_customer_id, "return_url": _CANCEL_URL}
     )
+    if not portal.url:
+        raise HTTPException(status_code=500, detail="Stripe did not return a portal URL.")
     return {"url": portal.url}
 
 
@@ -107,7 +111,7 @@ async def stripe_webhook(
 
     payload = await request.body()
     try:
-        event = stripe.Webhook.construct_event(
+        event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
             payload, stripe_signature or "", settings.stripe_webhook_secret
         )
     except stripe.SignatureVerificationError:
