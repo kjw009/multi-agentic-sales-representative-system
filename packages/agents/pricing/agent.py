@@ -159,7 +159,9 @@ def _condition_ord(item: Item) -> int:
 
 
 @traceable(name="pricing_model_predict", run_type="tool")
-def _model_predict(item: Item, comparable_prices: list[float]) -> tuple[float | None, dict[str, Any] | None]:
+def _model_predict(
+    item: Item, comparable_prices: list[float]
+) -> tuple[float | None, dict[str, Any] | None]:
     # Calculate the predicted price olely on the historical ML model
     if _MODEL is None or _META is None or _PCA_TITLE is None or _PCA_DESC is None:
         return None, None
