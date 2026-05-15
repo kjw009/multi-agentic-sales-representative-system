@@ -43,16 +43,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from packages.db.models import (
-    ComparableListing as ComparableListingRow,
-    PricePrediction as PricePredictionRow,
-)
-from packages.ml.registry import get_active_model_version_id
 from packages.agents.pricing.comparable_filter import (
     extract_keywords_from_comparables,
     validate_comparables,
 )
-from packages.db.models import Item, ItemCondition
+from packages.db.models import (
+    ComparableListing as ComparableListingRow,
+    Item,
+    ItemCondition,
+    PricePrediction as PricePredictionRow,
+)
+from packages.ml.registry import get_active_model_version_id
 from packages.platform_adapters.ebay.browse import Comparable, get_category_id, search_comparables
 from packages.schemas.agents import ComparableListing, PricingResult
 
