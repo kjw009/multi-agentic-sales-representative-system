@@ -8,7 +8,9 @@ Determines optimal pricing for items by combining two signals:
   2. Live eBay comparable median — current market prices from the Browse API.
 
 The model prediction already incorporates comparable stats as features (dominant
-signal), so the model gets the majority weight in the final blend (60 / 40).
+signal), so the model gets the majority weight in the final blend (60 / 40). When
+fewer than _MIN_CONFIDENT_COMPARABLES comparables are found the median's 40% share
+tapers toward 0 and shifts to the model.
 
 Comparable collection uses a multi-round adaptive strategy:
   - Round 0: Initial search with category filter + brand-first query.
@@ -134,6 +136,10 @@ def _get_sentence_model():
 _DEFAULT_FLOOR_RATIO = 0.70  # Default minimum price is 70% of recommended
 _MODEL_WEIGHT = 0.60  # ML Model contributes 60% to final price
 _TARGET_COMPARABLES = 20  # Try to find 20 matching items on eBay
+# Below this many comparables the median is treated as small-sample noise: its
+# weight in the final blend tapers linearly toward 0 and the freed weight shifts
+# to the model. At or above it, the standard _MODEL_WEIGHT split holds.
+_MIN_CONFIDENT_COMPARABLES = 6
 _MAX_SEARCH_ROUNDS = 3  # Rounds 0-1 use condition filter; round 2 drops it as fallback
 
 # ---------------------------------------------------------------------------
@@ -467,6 +473,32 @@ async def _persist_prediction(
         logger.exception("[pricing] Failed to persist prediction — continuing without logging")
 
 
+def _blend_price(
+    comparable_median: float | None,
+    model_pred: float | None,
+    n_comparables: int,
+) -> float:
+    """Combine the live comparable median and the model prediction.
+
+    With at least _MIN_CONFIDENT_COMPARABLES comparables the median is a solid
+    market signal and keeps its full ``1 - _MODEL_WEIGHT`` share. Below that
+    threshold the median is small-sample noise, so its weight tapers linearly
+    toward 0 in proportion to how few comparables were found and the freed
+    weight shifts to the model. At exactly the threshold this is identical to
+    the standard blend. When only one signal is available it is used on its own.
+    """
+    if comparable_median is not None and model_pred is not None:
+        comparable_weight = 1 - _MODEL_WEIGHT
+        if n_comparables < _MIN_CONFIDENT_COMPARABLES:
+            comparable_weight *= n_comparables / _MIN_CONFIDENT_COMPARABLES
+        return comparable_weight * comparable_median + (1 - comparable_weight) * model_pred
+    if comparable_median is not None:
+        return comparable_median
+    if model_pred is not None:
+        return model_pred
+    return 0.0
+
+
 @traceable(name="pricing_agent", run_type="chain")
 async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -> PricingResult:
     """Agent 2 — Pricing (v3 model).
@@ -500,15 +532,9 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
     # Get price prediction from historical ML model
     model_pred, model_features = _model_predict(row, prices)
 
-    # Weighted average of model prediction and comparable median
-    if comparable_median is not None and model_pred is not None:
-        recommended = (1 - _MODEL_WEIGHT) * comparable_median + _MODEL_WEIGHT * model_pred
-    elif comparable_median is not None:
-        recommended = comparable_median
-    elif model_pred is not None:
-        recommended = model_pred
-    else:
-        recommended = 0.0
+    # Blend the model prediction with the live comparable median, tapering the
+    # median's weight when too few comparables were found to trust it.
+    recommended = _blend_price(comparable_median, model_pred, len(prices))
 
     if len(prices) >= 2:
         price_low = float(np.percentile(prices, 25))
