@@ -17,6 +17,7 @@ import uuid
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM as PgENUM
 
 from alembic import op
 
@@ -28,7 +29,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.execute(
-        "CREATE TYPE model_status AS ENUM ('training', 'shadow', 'active', 'archived', 'failed')"
+        "CREATE TYPE IF NOT EXISTS model_status AS ENUM ('training', 'shadow', 'active', 'archived', 'failed')"
     )
 
     op.create_table(
@@ -43,7 +44,7 @@ def upgrade() -> None:
         sa.Column("training_row_count", sa.Integer(), nullable=True),
         sa.Column(
             "status",
-            sa.Enum(
+            PgENUM(
                 "training",
                 "shadow",
                 "active",
