@@ -41,7 +41,7 @@ _CATEGORIES_STR = ", ".join(CATEGORY_LIST)
 # Minimum number of photos required before intake is allowed to complete.
 # A strong eBay listing needs several angles (exterior, wear/marks, accessories),
 # so we keep asking until the seller has uploaded at least this many.
-_MIN_LISTING_IMAGES = 3
+_MIN_LISTING_IMAGES = 2
 
 SYSTEM_PROMPT = f"""\
 You are an AI assistant helping sellers create optimised eBay listings for \
