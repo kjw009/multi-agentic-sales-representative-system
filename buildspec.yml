@@ -13,7 +13,7 @@ phases:
     commands:
       - pip install uv --quiet
       - uv sync --extra dev --no-group dev
-      - npm --prefix apps/web ci
+      - npm --prefix apps/web install
 
   pre_build:
     on-failure: ABORT
