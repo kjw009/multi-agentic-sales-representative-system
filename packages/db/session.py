@@ -14,8 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from packages.config import settings
 
 # --- 1. Engine Setup ---
-# create_async_engine manages the low-level connection pool to PostgreSQL
-engine = create_async_engine(settings.database_url, future=True)
+# create_async_engine manages the low-level connection pool to PostgreSQL.
+#
+# pool_pre_ping: asyncpg connections are bound to the event loop that opened
+# them. If a pooled connection is ever handed to a different loop (or RDS
+# silently drops an idle connection), using it fails with "another operation
+# is in progress". Pre-ping issues a cheap liveness check on checkout and
+# transparently discards + replaces a dead connection instead of crashing.
+engine = create_async_engine(
+    settings.database_url,
+    future=True,
+    pool_pre_ping=True,
+)
 
 # --- 2. Session Configuration ---
 # SessionLocal is a factory for creating individual database transactions
