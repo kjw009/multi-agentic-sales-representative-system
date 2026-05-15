@@ -924,6 +924,11 @@ class EntityMention(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    # Relationships
+    buyer_message: Mapped["BuyerMessage"] = relationship(
+        "BuyerMessage", back_populates="entity_mentions"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Phase 6.0 — ML retraining loop data capture
