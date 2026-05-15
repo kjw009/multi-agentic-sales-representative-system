@@ -8,23 +8,27 @@ database connections and Row Level Security (RLS) context.
 import uuid
 from collections.abc import AsyncIterator
 
-from sqlalchemy import text
+from sqlalchemy import NullPool, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from packages.config import settings
 
 # --- 1. Engine Setup ---
-# create_async_engine manages the low-level connection pool to PostgreSQL.
+# poolclass=NullPool: do NOT pool connections. Every session opens a fresh
+# asyncpg connection on the event loop that is current at checkout, and closes
+# it when the session ends.
 #
-# pool_pre_ping: asyncpg connections are bound to the event loop that opened
-# them. If a pooled connection is ever handed to a different loop (or RDS
-# silently drops an idle connection), using it fails with "another operation
-# is in progress". Pre-ping issues a cheap liveness check on checkout and
-# transparently discards + replaces a dead connection instead of crashing.
+# Why this matters: asyncpg connections are permanently bound to the event
+# loop that created them. The SQS worker runs each task under its own loop,
+# so a pooled connection created under one loop and reused under another
+# fails with "cannot perform operation: another operation is in progress" /
+# "got Future attached to a different loop". With NullPool there is nothing
+# to reuse — the failure mode is structurally impossible. The cost is one
+# connection setup per session, which is negligible for this workload.
 engine = create_async_engine(
     settings.database_url,
     future=True,
-    pool_pre_ping=True,
+    poolclass=NullPool,
 )
 
 # --- 2. Session Configuration ---
