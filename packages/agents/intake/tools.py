@@ -10,6 +10,7 @@ operations.
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -17,7 +18,9 @@ import openai
 from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from packages.agents.intake import vision
 from packages.config import settings
 from packages.db.models import Item, ItemCondition, ItemStatus
 
@@ -334,6 +337,21 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "analyze_images_for_descriptors",
+            "description": (
+                "Analyze uploaded item photos to enrich a thin or generic listing with "
+                "visible descriptors and condition/defect details. Use this when photos "
+                "exist and seller-provided details are too vague, especially for visually "
+                "descriptive or unbranded items such as jewellery, clothing, shoes, watches, "
+                "furniture, bags, or collectibles. Do not use it to claim authenticity, "
+                "precious materials, gemstones, or brand unless visible markings prove them."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "record_item_specific",
             "description": (
                 "Record an eBay item-specific value the seller has supplied. Use ONLY "
@@ -516,8 +534,28 @@ async def execute_tool(
             setattr(item, field, value)
         elif field == "condition":
             try:
+                previous_condition = item.condition
                 # Parse and set condition enum
-                item.condition = ItemCondition(value)
+                new_condition = ItemCondition(value)
+                item.condition = new_condition
+                if item.visual_condition_needs_confirmation and item.visual_condition_report:
+                    attrs = dict(item.attributes or {})
+                    visual_condition = dict(attrs.get("visual_condition") or {})
+                    suggested = item.visual_condition_report.get("condition_grade")
+                    if new_condition.value == suggested:
+                        visual_condition["seller_resolution"] = "accepted_vision"
+                    else:
+                        visual_condition["seller_resolution"] = "seller_disagreed"
+                    visual_condition["vision_suggested_condition"] = suggested
+                    visual_condition["seller_confirmed_condition"] = new_condition.value
+                    visual_condition["previous_seller_condition"] = (
+                        previous_condition.value
+                        if isinstance(previous_condition, ItemCondition)
+                        else str(previous_condition)
+                    )
+                    attrs["visual_condition"] = visual_condition
+                    item.attributes = attrs
+                item.visual_condition_needs_confirmation = False
             except ValueError:
                 valid = [e.value for e in ItemCondition]
                 return (
@@ -560,6 +598,29 @@ async def execute_tool(
 
         await session.flush()
         return f"Saved item-specific {name} = {value!r}", item.id
+
+    if tool_name == "analyze_images_for_descriptors":
+        if not item_id:
+            return "Please tell me what item you're selling before uploading photos.", item_id
+        vision_item = await session.scalar(
+            select(Item).where(Item.id == item_id).options(selectinload(Item.images))
+        )
+        if not vision_item:
+            return "Error: item not found", item_id
+        images = list(getattr(vision_item, "images", []) or [])
+        if not images:
+            return (
+                "Please upload clear photos first so I can use them to improve the listing.",
+                vision_item.id,
+            )
+
+        report = await vision.analyse_item_images(vision_item, images)
+        vision.apply_visual_report_to_item(vision_item, report)
+        vision_item.visual_condition_analyzed_at = datetime.now(UTC)
+        if vision.condition_conflicts_with_seller(vision_item, report):
+            vision_item.visual_condition_needs_confirmation = True
+        await session.flush()
+        return vision.build_tool_summary(report), vision_item.id
 
     if tool_name == "generate_listing":
         raw_title = tool_input["raw_title"]

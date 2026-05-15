@@ -127,6 +127,7 @@ async def validate_comparables(
     item_brand: str | None,
     item_description: str,
     comparables: list[Comparable],
+    visual_condition_context: str | None = None,
 ) -> tuple[list[Comparable], list[Comparable]]:
     """LLM-gate that classifies comparables as keep/reject for a given item.
 
@@ -160,6 +161,8 @@ async def validate_comparables(
         # Limit description to first 60 words to keep the prompt compact
         short_desc = " ".join(item_description.split()[:60])
         item_ctx += f"  Description: {short_desc}\n"
+    if visual_condition_context:
+        item_ctx += f"  Photo condition analysis: {visual_condition_context}\n"
 
     comp_lines = "\n".join(
         f'{i + 1}. "{comp.title}" — £{comp.price:.2f}' for i, comp in enumerate(heuristic_kept)

@@ -242,6 +242,13 @@ class Item(Base):
     # NOTE: default=dict is safe here because SQLAlchemy handles callable defaults
     attributes: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
+    # Vision-derived condition analysis from uploaded item photos.
+    visual_condition_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    visual_condition_analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    visual_condition_needs_confirmation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
     # Minimum acceptable price from seller
     seller_floor_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
 

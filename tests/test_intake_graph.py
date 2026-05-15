@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -15,7 +16,7 @@ from packages.agents.intake.tools import (
     _generate_listing_text,
     execute_tool,
 )
-from packages.db.models import Item, ItemCondition
+from packages.db.models import Item, ItemCondition, ItemImage
 
 
 class _FakeCompletions:
@@ -59,6 +60,17 @@ class _FakeSession:
 
     def add(self, obj):
         self.added.append(obj)
+
+
+def _make_image(item_id: uuid.UUID, seller_id: uuid.UUID, position: int) -> ItemImage:
+    return ItemImage(
+        id=uuid.uuid4(),
+        item_id=item_id,
+        seller_id=seller_id,
+        s3_key=f"items/{position}.jpg",
+        url=f"https://example.com/{position}.jpg",
+        position=position,
+    )
 
 
 # ── Existing tests (updated for v2) ──────────────────────────────────────
@@ -182,6 +194,172 @@ async def test_plan_next_step_completes_once_minimum_images_uploaded():
 
 
 @pytest.mark.asyncio
+async def test_plan_next_step_skips_vision_for_new_condition(monkeypatch):
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Sealed Apple AirPods",
+        category="Headphones",
+        condition=ItemCondition.new,
+        description="Brand new sealed AirPods.",
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(_MIN_LISTING_IMAGES)]
+    session = _FakeSession(item=item, image_count=_MIN_LISTING_IMAGES)
+
+    analyse = AsyncMock()
+    monkeypatch.setattr("packages.agents.intake.graph.vision.analyse_item_images", analyse)
+
+    _reply, _needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert complete is True
+    analyse.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_plan_next_step_stores_vision_report_and_appends_description(monkeypatch):
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Nike Air Max 90",
+        category="Trainers",
+        condition=ItemCondition.good,
+        description="Nike Air Max 90 trainers in good condition.",
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(_MIN_LISTING_IMAGES)]
+    session = _FakeSession(item=item, image_count=_MIN_LISTING_IMAGES)
+
+    monkeypatch.setattr(
+        "packages.agents.intake.graph.vision.analyse_item_images",
+        AsyncMock(
+            return_value={
+                "condition_grade": "good",
+                "confidence": 0.83,
+                "visible_defects": [{"type": "scuff", "severity": "minor"}],
+                "photo_quality": "clear",
+                "description_addendum": "Minor scuffing is visible on the sole.",
+                "pricing_signals": ["sole_wear"],
+                "comparable_include_terms": ["used good"],
+                "comparable_exclude_terms": ["new", "sealed"],
+            }
+        ),
+    )
+
+    _reply, _needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert complete is True
+    assert item.visual_condition_report["condition_grade"] == "good"
+    assert item.attributes["visual_condition"]["pricing_signals"] == ["sole_wear"]
+    assert "Minor scuffing" in item.description
+
+
+@pytest.mark.asyncio
+async def test_plan_next_step_asks_for_confirmation_on_condition_conflict(monkeypatch):
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Nike Air Max 90",
+        category="Trainers",
+        condition=ItemCondition.like_new,
+        description="Nike Air Max 90 trainers in like new condition.",
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(_MIN_LISTING_IMAGES)]
+    session = _FakeSession(item=item, image_count=_MIN_LISTING_IMAGES)
+
+    monkeypatch.setattr(
+        "packages.agents.intake.graph.vision.analyse_item_images",
+        AsyncMock(
+            return_value={
+                "condition_grade": "good",
+                "confidence": 0.91,
+                "visible_defects": [{"type": "scuff", "severity": "minor"}],
+                "photo_quality": "clear",
+                "description_addendum": "Minor scuffing is visible on the sole.",
+                "pricing_signals": ["sole_wear"],
+                "comparable_include_terms": ["used good"],
+                "comparable_exclude_terms": ["new", "sealed"],
+            }
+        ),
+    )
+
+    reply, needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert "good" in reply
+    assert needs_image is False
+    assert complete is False
+    assert item.visual_condition_needs_confirmation is True
+
+
+@pytest.mark.asyncio
+async def test_plan_next_step_completes_when_vision_fails(monkeypatch):
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Nike Air Max 90",
+        category="Trainers",
+        condition=ItemCondition.good,
+        description="Nike Air Max 90 trainers in good condition.",
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(_MIN_LISTING_IMAGES)]
+    session = _FakeSession(item=item, image_count=_MIN_LISTING_IMAGES)
+
+    monkeypatch.setattr(
+        "packages.agents.intake.graph.vision.analyse_item_images",
+        AsyncMock(
+            return_value={
+                "condition_grade": None,
+                "confidence": 0.0,
+                "visible_defects": [],
+                "photo_quality": "poor",
+                "description_addendum": "",
+                "pricing_signals": [],
+                "comparable_include_terms": [],
+                "comparable_exclude_terms": [],
+                "analysis_error": "RuntimeError",
+            }
+        ),
+    )
+
+    _reply, _needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert complete is True
+    assert item.visual_condition_report["analysis_error"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_plan_next_step_skips_final_vision_when_tool_already_ran(monkeypatch):
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Unbranded ring",
+        category="Jewellery",
+        condition=ItemCondition.good,
+        description="Unbranded ring with silver-tone band.",
+        visual_condition_analyzed_at=datetime.now(UTC),
+        attributes={"visual_descriptors": [{"name": "colour", "value": "silver-tone"}]},
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(_MIN_LISTING_IMAGES)]
+    session = _FakeSession(item=item, image_count=_MIN_LISTING_IMAGES)
+
+    analyse = AsyncMock()
+    monkeypatch.setattr("packages.agents.intake.graph.vision.analyse_item_images", analyse)
+
+    _reply, _needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert complete is True
+    analyse.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_intake_node_uses_local_planner_after_tool_execution(monkeypatch):
     tool_call = SimpleNamespace(
         id="call_1",
@@ -290,6 +468,110 @@ async def test_record_attribute_saves_brand():
 
     assert "Saved brand" in result_text
     assert item.brand == "Nike"
+
+
+@pytest.mark.asyncio
+async def test_record_attribute_tracks_seller_disagreement_with_visual_condition():
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Nike Air Max 90",
+        category="Trainers",
+        condition=ItemCondition.like_new,
+        description="Like new trainers.",
+        visual_condition_needs_confirmation=True,
+        visual_condition_report={"condition_grade": "good", "confidence": 0.9},
+        attributes={"visual_condition": {"condition_grade": "good", "confidence": 0.9}},
+    )
+    session = _FakeSession(item=item)
+
+    result_text, _ = await execute_tool(
+        tool_name="record_attribute",
+        tool_input={"field": "condition", "value": "like_new"},
+        seller_id=seller_id,
+        item_id=item_id,
+        session=session,
+    )
+
+    visual_condition = item.attributes["visual_condition"]
+    assert "Saved condition" in result_text
+    assert item.visual_condition_needs_confirmation is False
+    assert visual_condition["seller_resolution"] == "seller_disagreed"
+    assert visual_condition["vision_suggested_condition"] == "good"
+    assert visual_condition["seller_confirmed_condition"] == "like_new"
+
+
+@pytest.mark.asyncio
+async def test_analyze_images_for_descriptors_tool_stores_report(monkeypatch):
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Unbranded ring",
+        category="Jewellery",
+        condition=ItemCondition.good,
+        description="Unbranded ring.",
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(2)]
+    session = _FakeSession(item=item)
+    monkeypatch.setattr(
+        "packages.agents.intake.tools.vision.analyse_item_images",
+        AsyncMock(
+            return_value={
+                "condition_grade": "good",
+                "confidence": 0.8,
+                "visible_defects": [],
+                "visual_descriptors": [{"name": "metal colour", "value": "silver-tone"}],
+                "photo_quality": "clear",
+                "description_addendum": "Light surface wear is visible.",
+                "descriptor_addendum": "Silver-tone band with clear stones visible.",
+                "pricing_signals": ["silver_tone"],
+                "comparable_include_terms": ["silver-tone ring"],
+                "comparable_exclude_terms": ["gold ring"],
+            }
+        ),
+    )
+
+    result_text, _ = await execute_tool(
+        tool_name="analyze_images_for_descriptors",
+        tool_input={},
+        seller_id=seller_id,
+        item_id=item_id,
+        session=session,
+    )
+
+    assert "Visual analysis saved" in result_text
+    assert item.attributes["visual_descriptors"][0]["value"] == "silver-tone"
+    assert "Silver-tone band" in item.description
+
+
+@pytest.mark.asyncio
+async def test_analyze_images_for_descriptors_tool_requires_images():
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Unbranded ring",
+        category="Jewellery",
+        condition=ItemCondition.good,
+        description="Unbranded ring.",
+    )
+    item.images = []
+    session = _FakeSession(item=item)
+
+    result_text, _ = await execute_tool(
+        tool_name="analyze_images_for_descriptors",
+        tool_input={},
+        seller_id=seller_id,
+        item_id=item_id,
+        session=session,
+    )
+
+    assert "upload clear photos first" in result_text
 
 
 # ── New v2 tests — generate_listing tool ─────────────────────────────────
