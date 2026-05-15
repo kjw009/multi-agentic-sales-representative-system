@@ -107,7 +107,7 @@ async def stripe_webhook(
 
     payload = await request.body()
     try:
-        event = stripe.Webhook.construct_event(  # type: ignore[no-untyped-call]
+        event = stripe.Webhook.construct_event(
             payload, stripe_signature or "", settings.stripe_webhook_secret
         )
     except stripe.SignatureVerificationError:
