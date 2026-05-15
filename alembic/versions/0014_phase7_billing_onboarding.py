@@ -32,8 +32,13 @@ def upgrade() -> None:
     )
 
     # Onboarding + demo
-    op.add_column("sellers", sa.Column("onboarding_completed", sa.Boolean(), nullable=False, server_default="false"))
-    op.add_column("sellers", sa.Column("is_demo", sa.Boolean(), nullable=False, server_default="false"))
+    op.add_column(
+        "sellers",
+        sa.Column("onboarding_completed", sa.Boolean(), nullable=False, server_default="false"),
+    )
+    op.add_column(
+        "sellers", sa.Column("is_demo", sa.Boolean(), nullable=False, server_default="false")
+    )
 
     # Stripe billing
     op.add_column("sellers", sa.Column("stripe_customer_id", sa.Text(), nullable=True))
@@ -50,13 +55,23 @@ def upgrade() -> None:
         "sellers",
         sa.Column(
             "subscription_status",
-            sa.Enum("none", "trialing", "active", "past_due", "canceled", name="subscription_status", create_type=False),
+            sa.Enum(
+                "none",
+                "trialing",
+                "active",
+                "past_due",
+                "canceled",
+                name="subscription_status",
+                create_type=False,
+            ),
             nullable=False,
             server_default="none",
         ),
     )
     op.add_column("sellers", sa.Column("stripe_subscription_id", sa.Text(), nullable=True))
-    op.add_column("sellers", sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=True))
+    op.add_column(
+        "sellers", sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=True)
+    )
 
 
 def downgrade() -> None:

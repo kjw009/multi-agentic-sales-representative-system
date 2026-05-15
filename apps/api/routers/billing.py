@@ -38,7 +38,9 @@ async def billing_status(
     return {
         "plan": seller.plan.value,
         "subscription_status": seller.subscription_status.value,
-        "current_period_end": seller.current_period_end.isoformat() if seller.current_period_end else None,
+        "current_period_end": seller.current_period_end.isoformat()
+        if seller.current_period_end
+        else None,
     }
 
 
@@ -145,6 +147,7 @@ async def stripe_webhook(
         db_seller.stripe_subscription_id = data.get("id")
         if period_end:
             from datetime import datetime
+
             db_seller.current_period_end = datetime.fromtimestamp(period_end, tz=UTC)
 
         if new_status in (SubscriptionStatus.active, SubscriptionStatus.trialing):
@@ -154,6 +157,11 @@ async def stripe_webhook(
             db_seller.current_period_end = None
 
         await session.commit()
-        logger.info("Stripe subscription updated for seller %s: %s → %s", db_seller.id, event_type, new_status)
+        logger.info(
+            "Stripe subscription updated for seller %s: %s → %s",
+            db_seller.id,
+            event_type,
+            new_status,
+        )
 
     return {"status": "ok"}

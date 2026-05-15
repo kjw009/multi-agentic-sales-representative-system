@@ -27,7 +27,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE model_status AS ENUM ('training', 'shadow', 'active', 'archived', 'failed')")
+    op.execute(
+        "CREATE TYPE model_status AS ENUM ('training', 'shadow', 'active', 'archived', 'failed')"
+    )
 
     op.create_table(
         "model_versions",
@@ -41,7 +43,15 @@ def upgrade() -> None:
         sa.Column("training_row_count", sa.Integer(), nullable=True),
         sa.Column(
             "status",
-            sa.Enum("training", "shadow", "active", "archived", "failed", name="model_status", create_type=False),
+            sa.Enum(
+                "training",
+                "shadow",
+                "active",
+                "archived",
+                "failed",
+                name="model_status",
+                create_type=False,
+            ),
             nullable=False,
             server_default="training",
         ),

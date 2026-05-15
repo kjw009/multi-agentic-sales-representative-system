@@ -436,7 +436,9 @@ async def _persist_prediction(
             features=model_features,
             features_partial=(model_features is None),
             model_prediction=round(model_pred, 2) if model_pred is not None else None,
-            comparable_median=round(comparable_median, 2) if comparable_median is not None else None,
+            comparable_median=round(comparable_median, 2)
+            if comparable_median is not None
+            else None,
             recommended_price=result.recommended_price,
             min_acceptable_price=result.min_acceptable_price,
             confidence_score=result.confidence_score,

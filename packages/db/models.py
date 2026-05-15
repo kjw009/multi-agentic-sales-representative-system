@@ -982,10 +982,16 @@ class PricePrediction(Base):
         UUID(as_uuid=True), ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True
     )
     listing_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("listings.id", ondelete="SET NULL"), nullable=True, index=True
+        UUID(as_uuid=True),
+        ForeignKey("listings.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     model_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("model_versions.id", ondelete="SET NULL"), nullable=True, index=True
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     features: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
@@ -1002,7 +1008,9 @@ class PricePrediction(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    model_version: Mapped["ModelVersion | None"] = relationship("ModelVersion", back_populates="predictions")
+    model_version: Mapped["ModelVersion | None"] = relationship(
+        "ModelVersion", back_populates="predictions"
+    )
     comparables: Mapped[list["ComparableListing"]] = relationship(
         "ComparableListing", back_populates="prediction", cascade="all, delete-orphan"
     )
@@ -1034,7 +1042,9 @@ class ComparableListing(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    prediction: Mapped["PricePrediction"] = relationship("PricePrediction", back_populates="comparables")
+    prediction: Mapped["PricePrediction"] = relationship(
+        "PricePrediction", back_populates="comparables"
+    )
 
     # Relationships
     buyer_message: Mapped["BuyerMessage"] = relationship(
