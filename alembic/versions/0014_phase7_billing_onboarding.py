@@ -15,6 +15,7 @@ Create Date: 2026-05-15
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import ENUM
 
 from alembic import op
 
@@ -25,11 +26,18 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE plan_tier AS ENUM ('free', 'pro')")
-    op.execute(
-        "CREATE TYPE subscription_status AS ENUM "
-        "('none', 'trialing', 'active', 'past_due', 'canceled')"
-    )
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE plan_tier AS ENUM ('free', 'pro');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
+    op.execute("""
+        DO $$ BEGIN
+            CREATE TYPE subscription_status AS ENUM ('none', 'trialing', 'active', 'past_due', 'canceled');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+    """)
 
     # Onboarding + demo
     op.add_column(
@@ -46,7 +54,7 @@ def upgrade() -> None:
         "sellers",
         sa.Column(
             "plan",
-            sa.Enum("free", "pro", name="plan_tier", create_type=False),
+            ENUM("free", "pro", name="plan_tier", create_type=False),
             nullable=False,
             server_default="free",
         ),
@@ -55,7 +63,7 @@ def upgrade() -> None:
         "sellers",
         sa.Column(
             "subscription_status",
-            sa.Enum(
+            ENUM(
                 "none",
                 "trialing",
                 "active",
