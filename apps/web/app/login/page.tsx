@@ -3,41 +3,32 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-/**
- * Login/Signup page component.
- *
- * Provides a form for users to log in or sign up, with tab switching
- * between login and signup modes. Stores auth token on success and redirects to chat.
- */
 export default function LoginPage() {
   const router = useRouter();
-  // Current active tab: login or signup
   const [tab, setTab] = useState<"login" | "signup">("login");
-  // Email input value
   const [email, setEmail] = useState("");
-  // Password input value
   const [password, setPassword] = useState("");
-  // Error message to display
   const [error, setError] = useState("");
-  // Loading state during API call
   const [loading, setLoading] = useState(false);
 
-  // Handle form submission for login or signup
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      // Call appropriate API based on current tab
-      const res = tab === "login"
-        ? await api.login(email, password)
-        : await api.signup(email, password);
-      // Store auth data in localStorage
+      const res =
+        tab === "login"
+          ? await api.login(email, password)
+          : await api.signup(email, password);
       localStorage.setItem("token", res.access_token);
       localStorage.setItem("seller_id", res.seller_id);
-      // Redirect to chat page
-      router.push("/chat");
+      // Route to onboarding if not yet completed, else chat
+      const onboarded = await api.getOnboardingStatus().catch(() => true);
+      router.push(onboarded ? "/chat" : "/onboarding");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -45,60 +36,92 @@ export default function LoginPage() {
     }
   }
 
+  async function enterDemo() {
+    setLoading(true);
+    try {
+      const res = await api.demoLogin();
+      localStorage.setItem("token", res.access_token);
+      localStorage.setItem("seller_id", res.seller_id);
+      router.push("/chat");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Demo unavailable");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      {/* Centered login/signup card */}
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-        {/* App branding */}
-        <h1 className="text-xl font-semibold mb-6 text-center">SalesRep</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 bg-background">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-center text-xl">SalesRep</CardTitle>
+          <p className="text-center text-sm text-muted-foreground">
+            AI-powered eBay selling assistant
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Tab switcher */}
+          <div className="flex rounded-xl overflow-hidden border border-border">
+            {(["login", "signup"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => { setTab(t); setError(""); }}
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                  tab === t
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-card text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                {t === "login" ? "Log in" : "Sign up"}
+              </button>
+            ))}
+          </div>
 
-        {/* Tab selector for login/signup */}
-        <div className="flex rounded-lg overflow-hidden border border-gray-200 mb-6">
-          {(["login", "signup"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => { setTab(t); setError(""); }}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                tab === t ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
-              }`}
-            >
-              {t === "login" ? "Log in" : "Sign up"}
-            </button>
-          ))}
-        </div>
+          <form onSubmit={submit} className="space-y-3">
+            <Input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <Input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            {error && <p className="text-destructive text-sm">{error}</p>}
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? "…" : tab === "login" ? "Log in" : "Create account"}
+            </Button>
+          </form>
 
-        {/* Login/signup form */}
-        <form onSubmit={submit} className="space-y-4">
-          {/* Email input */}
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-          />
-          {/* Password input */}
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-          />
-          {/* Error message display */}
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-          {/* Submit button */}
-          <button
-            type="submit"
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
             disabled={loading}
-            className="w-full bg-gray-900 text-white rounded-lg py-2 text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            className="w-full"
+            onClick={enterDemo}
           >
-            {loading ? "…" : tab === "login" ? "Log in" : "Create account"}
-          </button>
-        </form>
-      </div>
+            Try the live demo
+          </Button>
+        </CardContent>
+      </Card>
+
+      <p className="text-xs text-muted-foreground text-center max-w-xs">
+        No credit card required for the free tier. eBay connection needed to list items.
+      </p>
     </div>
   );
 }

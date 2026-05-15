@@ -9,6 +9,9 @@ from packages.db.session import get_session
 from packages.notifications import create_seller_topic
 from packages.schemas.auth import LoginRequest, SignupRequest, TokenResponse
 
+_DEMO_EMAIL = "demo@salesrep.app"
+_DEMO_PASSWORD = "demo-salesrep-2025"
+
 # Create APIRouter for authentication endpoints with /auth prefix
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -63,3 +66,25 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)
 
     # Return access token for the authenticated seller
     return TokenResponse(access_token=create_access_token(seller.id), seller_id=seller.id)
+
+
+@router.get("/demo", response_model=TokenResponse)
+async def demo_login(session: AsyncSession = Depends(get_session)) -> TokenResponse:
+    """Return a token for the shared read-only demo account.
+
+    The demo seller is created on first call and seeded with fixtures.
+    Mutating endpoints guard against is_demo=True sellers via the
+    `require_not_demo` dependency in apps/api/deps.py.
+    """
+    demo = await session.scalar(select(Seller).where(Seller.email == _DEMO_EMAIL))
+    if demo is None:
+        demo = Seller(
+            email=_DEMO_EMAIL,
+            hashed_password=hash_password(_DEMO_PASSWORD),
+            is_demo=True,
+            onboarding_completed=True,
+        )
+        session.add(demo)
+        await session.commit()
+        await session.refresh(demo)
+    return TokenResponse(access_token=create_access_token(demo.id), seller_id=demo.id)

@@ -9,6 +9,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     SmallInteger,
@@ -83,6 +84,27 @@ class NegotiationStatus(enum.StrEnum):
     seller_review = "seller_review"  # Agent escalated to seller for approval
 
 
+class ModelStatus(enum.StrEnum):
+    training = "training"
+    shadow = "shadow"
+    active = "active"
+    archived = "archived"
+    failed = "failed"
+
+
+class PlanTier(enum.StrEnum):
+    free = "free"
+    pro = "pro"
+
+
+class SubscriptionStatus(enum.StrEnum):
+    none = "none"
+    trialing = "trialing"
+    active = "active"
+    past_due = "past_due"
+    canceled = "canceled"
+
+
 class AutonomyLevel(enum.StrEnum):
     # Per-seller cap on how much Agent 4 may send without approval.
     draft = "draft"  # Every reply requires seller approval
@@ -117,6 +139,25 @@ class Seller(Base):
     stale_threshold_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
     # Hard cap on automatic reprices per listing
     max_reprice_count: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+
+    # Onboarding + demo flags (Phase 7)
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Stripe billing (Phase 7)
+    stripe_customer_id: Mapped[str | None] = mapped_column(Text)
+    plan: Mapped[PlanTier] = mapped_column(
+        Enum(PlanTier, name="plan_tier"),
+        nullable=False,
+        default=PlanTier.free,
+    )
+    subscription_status: Mapped[SubscriptionStatus] = mapped_column(
+        Enum(SubscriptionStatus, name="subscription_status"),
+        nullable=False,
+        default=SubscriptionStatus.none,
+    )
+    stripe_subscription_id: Mapped[str | None] = mapped_column(Text)
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Auto-managed timestamps (DB-side defaults)
     created_at: Mapped[datetime] = mapped_column(
@@ -886,4 +927,126 @@ class EntityMention(Base):
     # Relationships
     buyer_message: Mapped["BuyerMessage"] = relationship(
         "BuyerMessage", back_populates="entity_mentions"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6.0 — ML retraining loop data capture
+# ---------------------------------------------------------------------------
+
+
+class ModelVersion(Base):
+    """Registry of LightGBM model artifacts."""
+
+    __tablename__ = "model_versions"
+    __table_args__ = (
+        Index(
+            "ix_model_versions_active_unique",
+            "status",
+            unique=True,
+            postgresql_where="status = 'active'",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    version: Mapped[str] = mapped_column(Text, nullable=False)
+    algorithm: Mapped[str] = mapped_column(Text, nullable=False, default="lightgbm")
+    artifact_s3_key: Mapped[str | None] = mapped_column(Text)
+    feature_cols: Mapped[list[Any] | None] = mapped_column(JSONB)
+    train_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    shadow_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    training_row_count: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[ModelStatus] = mapped_column(
+        Enum(ModelStatus, name="model_status"),
+        nullable=False,
+        default=ModelStatus.training,
+    )
+    trained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    promoted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    predictions: Mapped[list["PricePrediction"]] = relationship(
+        "PricePrediction", back_populates="model_version"
+    )
+
+
+class PricePrediction(Base):
+    """Point-in-time feature snapshot for one Agent 2 pricing decision."""
+
+    __tablename__ = "price_predictions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sellers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    listing_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("listings.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    model_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("model_versions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    features: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    features_partial: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    model_prediction: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    comparable_median: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    recommended_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    min_acceptable_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4))
+    is_shadow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    realized_sale_price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    realized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    model_version: Mapped["ModelVersion | None"] = relationship(
+        "ModelVersion", back_populates="predictions"
+    )
+    comparables: Mapped[list["ComparableListing"]] = relationship(
+        "ComparableListing", back_populates="prediction", cascade="all, delete-orphan"
+    )
+
+
+class ComparableListing(Base):
+    """Persisted eBay comparable snapshot linked to a pricing prediction."""
+
+    __tablename__ = "comparable_listings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    price_prediction_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("price_predictions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sellers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    external_item_id: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str | None] = mapped_column(Text)
+    price: Mapped[float | None] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str | None] = mapped_column(Text)
+    condition: Mapped[str | None] = mapped_column(Text)
+    listing_url: Mapped[str | None] = mapped_column(Text)
+    relevance: Mapped[str | None] = mapped_column(Text)
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    prediction: Mapped["PricePrediction"] = relationship(
+        "PricePrediction", back_populates="comparables"
     )
