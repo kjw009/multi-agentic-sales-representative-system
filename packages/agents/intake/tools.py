@@ -534,28 +534,8 @@ async def execute_tool(
             setattr(item, field, value)
         elif field == "condition":
             try:
-                previous_condition = item.condition
                 # Parse and set condition enum
-                new_condition = ItemCondition(value)
-                item.condition = new_condition
-                if item.visual_condition_needs_confirmation and item.visual_condition_report:
-                    attrs = dict(item.attributes or {})
-                    visual_condition = dict(attrs.get("visual_condition") or {})
-                    suggested = item.visual_condition_report.get("condition_grade")
-                    if new_condition.value == suggested:
-                        visual_condition["seller_resolution"] = "accepted_vision"
-                    else:
-                        visual_condition["seller_resolution"] = "seller_disagreed"
-                    visual_condition["vision_suggested_condition"] = suggested
-                    visual_condition["seller_confirmed_condition"] = new_condition.value
-                    visual_condition["previous_seller_condition"] = (
-                        previous_condition.value
-                        if isinstance(previous_condition, ItemCondition)
-                        else str(previous_condition)
-                    )
-                    attrs["visual_condition"] = visual_condition
-                    item.attributes = attrs
-                item.visual_condition_needs_confirmation = False
+                item.condition = ItemCondition(value)
             except ValueError:
                 valid = [e.value for e in ItemCondition]
                 return (
@@ -617,8 +597,6 @@ async def execute_tool(
         report = await vision.analyse_item_images(vision_item, images)
         vision.apply_visual_report_to_item(vision_item, report)
         vision_item.visual_condition_analyzed_at = datetime.now(UTC)
-        if vision.condition_conflicts_with_seller(vision_item, report):
-            vision_item.visual_condition_needs_confirmation = True
         await session.flush()
         return vision.build_tool_summary(report), vision_item.id
 

@@ -16,14 +16,6 @@ logger = logging.getLogger(__name__)
 
 _MAX_IMAGES = 6
 _VALID_CONDITIONS = {condition.value for condition in ItemCondition}
-_CONDITION_ORDINAL = {
-    ItemCondition.new.value: 4,
-    ItemCondition.like_new.value: 3,
-    ItemCondition.good.value: 2,
-    ItemCondition.fair.value: 1,
-    ItemCondition.poor.value: 0,
-}
-
 _VISION_SYSTEM = """\
 You inspect seller-uploaded marketplace photos to identify visible item condition.
 Return only valid JSON. Be conservative and factual: mention only defects visible in
@@ -152,31 +144,6 @@ def image_urls_for_analysis(images: list[ItemImage]) -> list[str]:
     """Return ordered image URLs capped to the vision budget."""
     ordered = sorted(images, key=lambda image: image.position)
     return [image.url for image in ordered[:_MAX_IMAGES] if image.url]
-
-
-def condition_conflicts_with_seller(item: Item, report: dict[str, Any]) -> bool:
-    """Return True when vision confidently suggests a lower condition grade."""
-    grade = report.get("condition_grade")
-    if not grade or report.get("photo_quality") == "poor":
-        return False
-    try:
-        confidence = float(report.get("confidence", 0.0))
-    except (TypeError, ValueError):
-        return False
-    if confidence < 0.7:
-        return False
-    seller_grade = str(item.condition) if item.condition else None
-    if seller_grade not in _CONDITION_ORDINAL or grade not in _CONDITION_ORDINAL:
-        return False
-    return _CONDITION_ORDINAL[grade] < _CONDITION_ORDINAL[seller_grade]
-
-
-def build_confirmation_question(report: dict[str, Any]) -> str:
-    grade = report.get("condition_grade") or "used"
-    addendum = report.get("description_addendum") or ""
-    if addendum:
-        return f"The photos appear to show: {addendum} Should I describe the condition as {grade}?"
-    return f"The photos suggest the item may be closer to {grade} condition. Does that sound right?"
 
 
 def append_description_addendum(description: str, addendum: str) -> str:

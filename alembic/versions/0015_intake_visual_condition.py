@@ -27,18 +27,8 @@ def upgrade() -> None:
         "items",
         sa.Column("visual_condition_analyzed_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.add_column(
-        "items",
-        sa.Column(
-            "visual_condition_needs_confirmation",
-            sa.Boolean(),
-            nullable=False,
-            server_default="false",
-        ),
-    )
 
 
 def downgrade() -> None:
-    op.drop_column("items", "visual_condition_needs_confirmation")
     op.drop_column("items", "visual_condition_analyzed_at")
     op.drop_column("items", "visual_condition_report")

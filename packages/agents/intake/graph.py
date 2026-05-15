@@ -14,7 +14,6 @@ v2 changes:
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 import openai
@@ -26,7 +25,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from packages.agents.intake import vision
 from packages.agents.intake.tools import (
     CATEGORY_ENRICHMENT_HINTS,
     CATEGORY_LIST,
@@ -282,27 +280,6 @@ async def _plan_next_step(
             False,
         )
 
-    if item.visual_condition_needs_confirmation:
-        report = item.visual_condition_report or {}
-        return vision.build_confirmation_question(report), False, False
-
-    if (
-        settings.intake_vision_enabled
-        and item.condition != ItemCondition.new
-        and item.visual_condition_analyzed_at is None
-    ):
-        images = list(getattr(item, "images", []) or [])
-        report = await vision.analyse_item_images(item, images)
-        vision.apply_visual_report_to_item(item, report)
-        item.visual_condition_analyzed_at = datetime.now(UTC)
-
-        if vision.condition_conflicts_with_seller(item, report):
-            item.visual_condition_needs_confirmation = True
-            await session.flush()
-            return vision.build_confirmation_question(report), False, False
-
-        await session.flush()
-
     item.status = ItemStatus.intake_complete
     await session.flush()
     return "Great — I have everything I need to prepare your listing!", False, True
@@ -361,17 +338,6 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
         item = await session.scalar(select(Item).where(Item.id == item_id))
         if item and item.category:
             system_content += _enrichment_context(item.category)
-        if item and item.visual_condition_needs_confirmation and item.visual_condition_report:
-            report = item.visual_condition_report
-            system_content += (
-                "\n\nNOTE: visual condition confirmation is active. "
-                f"The photo analysis suggested condition={report.get('condition_grade')} "
-                f"with confidence={report.get('confidence')}. "
-                "If the seller agrees, call record_attribute with field='condition' "
-                "and that suggested condition value. If they disagree, ask one short "
-                "follow-up question and then call record_attribute with their confirmed "
-                "condition, even if it is unchanged."
-            )
         if item and item.status == ItemStatus.needs_specifics and item.required_specifics:
             specifics = ", ".join(item.required_specifics)
             system_content += (

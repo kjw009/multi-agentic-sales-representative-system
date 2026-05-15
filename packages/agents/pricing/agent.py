@@ -153,10 +153,6 @@ _CONDITION_MAP: dict[ItemCondition, int] = {
     ItemCondition.fair: 1,  # used
     ItemCondition.poor: 0,  # for_parts
 }
-_CONDITION_ORDINAL_BY_VALUE = {condition.value: ordinal for condition, ordinal in _CONDITION_MAP.items()}
-_VISION_DISAGREEMENT_CONFIDENCE_MULTIPLIER = 0.85
-
-
 def _condition_ord(item: Item) -> int:
     return _CONDITION_MAP.get(item.condition, 2)
 
@@ -196,57 +192,8 @@ def _visual_condition_context(item: Item) -> str:
         values = report.get(key) or visual_attrs.get(key) or []
         if values:
             parts.append(f"{label}: {', '.join(str(v) for v in values[:8])}")
-    resolution = visual_attrs.get("seller_resolution")
-    if resolution:
-        parts.append(f"seller resolution: {resolution}")
 
     return ". ".join(parts)
-
-
-def _has_high_confidence_visual_condition_disagreement(item: Item) -> bool:
-    report = item.visual_condition_report or {}
-    visual_attrs = (item.attributes or {}).get("visual_condition", {})
-    if visual_attrs.get("seller_resolution") != "seller_disagreed":
-        return False
-    if (report.get("photo_quality") or visual_attrs.get("photo_quality")) == "poor":
-        return False
-
-    try:
-        vision_confidence = float(report.get("confidence", visual_attrs.get("confidence", 0.0)))
-    except (TypeError, ValueError):
-        return False
-    if vision_confidence < 0.75:
-        return False
-
-    vision_grade = report.get("condition_grade") or visual_attrs.get("vision_suggested_condition")
-    seller_grade = visual_attrs.get("seller_confirmed_condition") or (
-        item.condition.value if isinstance(item.condition, ItemCondition) else str(item.condition)
-    )
-    if vision_grade not in _CONDITION_ORDINAL_BY_VALUE or seller_grade not in _CONDITION_ORDINAL_BY_VALUE:
-        return False
-    return _CONDITION_ORDINAL_BY_VALUE[str(vision_grade)] < _CONDITION_ORDINAL_BY_VALUE[
-        str(seller_grade)
-    ]
-
-
-def _apply_visual_condition_confidence_adjustment(
-    item: Item,
-    confidence: float,
-) -> tuple[float, dict[str, Any]]:
-    """Lower confidence, not price, when seller rejects high-confidence photo evidence."""
-    visual_condition = (item.attributes or {}).get("visual_condition", {})
-    if not isinstance(visual_condition, dict):
-        visual_condition = {}
-    adjustment = {
-        "visual_condition_seller_resolution": visual_condition.get("seller_resolution"),
-        "visual_condition_confidence_penalty": 1.0,
-    }
-    if not _has_high_confidence_visual_condition_disagreement(item):
-        return confidence, adjustment
-
-    adjusted = confidence * _VISION_DISAGREEMENT_CONFIDENCE_MULTIPLIER
-    adjustment["visual_condition_confidence_penalty"] = _VISION_DISAGREEMENT_CONFIDENCE_MULTIPLIER
-    return adjusted, adjustment
 
 
 # ---------------------------------------------------------------------------
@@ -653,11 +600,6 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         confidence = 0.3
     else:
         confidence = 0.0
-    confidence, confidence_adjustment = _apply_visual_condition_confidence_adjustment(
-        row, confidence
-    )
-    if model_features is not None:
-        model_features.update({f"_context_{k}": v for k, v in confidence_adjustment.items()})
 
     floor = (
         float(row.seller_floor_price)
