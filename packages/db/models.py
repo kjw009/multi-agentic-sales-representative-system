@@ -1050,8 +1050,3 @@ class ComparableListing(Base):
     prediction: Mapped["PricePrediction"] = relationship(
         "PricePrediction", back_populates="comparables"
     )
-
-    # Relationships
-    buyer_message: Mapped["BuyerMessage"] = relationship(
-        "BuyerMessage", back_populates="entity_mentions"
-    )
