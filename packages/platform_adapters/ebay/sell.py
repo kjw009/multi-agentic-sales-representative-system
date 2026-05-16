@@ -12,6 +12,7 @@ Handles the full lifecycle of creating eBay listings:
 """
 
 import logging
+import re
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -109,6 +110,20 @@ _CATEGORY_TREE_MAP = {
     "EBAY_FR": "71",
 }
 
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
+_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
+_PHONE_RE = re.compile(r"(?<!\w)(?:\+?\d[\d\s().-]{7,}\d)(?!\w)")
+_POLICY_RISK_RE = re.compile(
+    r"\b(?:"
+    r"contact\s+me|message\s+me|text\s+me|call\s+me|whats\s*app|whatsapp|"
+    r"outside\s+eBay|outside\s+ebay|off\s+eBay|off\s+ebay|"
+    r"cash\s+on\s+collection|bank\s+transfer|direct\s+payment|paypal|"
+    r"email\s+me|phone\s+me"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 def _base() -> str:
     return _API_BASE.get(settings.ebay_env, _API_BASE["production"])
@@ -124,6 +139,29 @@ def _country_code() -> str:
 
 def _category_tree_id() -> str:
     return _CATEGORY_TREE_MAP.get(settings.ebay_marketplace_id, "3")
+
+
+def _clean_ebay_listing_text(
+    text: str | None,
+    *,
+    fallback: str,
+    max_len: int | None = None,
+) -> str:
+    """Remove common eBay policy tripwires from generated listing copy."""
+    cleaned = text or fallback or "Item for sale"
+    cleaned = cleaned.replace("]]>", "] ]>")
+    cleaned = _CONTROL_CHAR_RE.sub(" ", cleaned)
+    cleaned = _EMAIL_RE.sub(" ", cleaned)
+    cleaned = _URL_RE.sub(" ", cleaned)
+    cleaned = _PHONE_RE.sub(" ", cleaned)
+    cleaned = _POLICY_RISK_RE.sub(" ", cleaned)
+    cleaned = "\n".join(" ".join(line.split()) for line in cleaned.splitlines())
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if not cleaned:
+        cleaned = fallback or "Item for sale"
+    if max_len is not None and len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].rstrip()
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -232,11 +270,17 @@ async def create_inventory_item(
     aspects beyond the product brand.
     """
     condition = _CONDITION_MAP.get(str(item.condition), "USED_GOOD")
+    title = _clean_ebay_listing_text(item.name, fallback="Item", max_len=80)
+    description = _clean_ebay_listing_text(
+        item.description or item.name,
+        fallback=title,
+        max_len=4000,
+    )
 
     # Build product payload
     product: dict[str, Any] = {
-        "title": item.name[:80],  # eBay title limit
-        "description": item.description or item.name,
+        "title": title,  # eBay title limit
+        "description": description,
         "imageUrls": image_urls[:12],  # eBay allows up to 12 images
     }
     if item.brand:
@@ -265,8 +309,8 @@ async def create_inventory_item(
         },
     }
 
-    if item.description:
-        payload["conditionDescription"] = item.description[:1000]
+    if description:
+        payload["conditionDescription"] = description[:1000]
 
     url = f"{_base()}/sell/inventory/v1/inventory_item/{sku}"
     async with httpx.AsyncClient(timeout=30) as client:
@@ -681,8 +725,12 @@ async def _publish_via_trading_api(
     currency = _currency()
     condition_id = _CONDITION_TRADING_API_MAP.get(str(item.condition), "3000")
 
-    title = xml_escape((item.name or "Item")[:80])
-    description = item.description or item.name or "Item for sale"
+    title = xml_escape(_clean_ebay_listing_text(item.name, fallback="Item", max_len=80))
+    description = _clean_ebay_listing_text(
+        item.description or item.name,
+        fallback="Item for sale",
+        max_len=4000,
+    )
 
     picture_urls_xml = "".join(
         f"<PictureURL>{xml_escape(url)}</PictureURL>" for url in (image_urls or [])[:12]

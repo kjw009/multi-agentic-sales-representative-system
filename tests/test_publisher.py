@@ -25,6 +25,7 @@ from packages.platform_adapters.ebay.sell import (
     PolicyIds,
     PublishResult,
     SellerToken,
+    _clean_ebay_listing_text,
     build_inventory_item_payload,
 )
 from packages.schemas.agents import ListingResult, PricingResult
@@ -198,6 +199,20 @@ class TestEbayPayloadBuilder:
         payload = build_inventory_item_payload(item, ["https://img.jpg"])
 
         assert payload["conditionDescription"] == "Minor scratches on back"
+
+    def test_listing_text_sanitizer_removes_policy_risk_terms(self):
+        text = (
+            "Great phone. Contact me on WhatsApp at +44 7700 900123 or "
+            "pay by bank transfer: seller@example.com https://example.com"
+        )
+
+        cleaned = _clean_ebay_listing_text(text, fallback="Item for sale")
+
+        assert "WhatsApp" not in cleaned
+        assert "bank transfer" not in cleaned
+        assert "seller@example.com" not in cleaned
+        assert "https://example.com" not in cleaned
+        assert "+44" not in cleaned
 
 
 # ---------------------------------------------------------------------------
