@@ -773,7 +773,7 @@ def _blend_price(
     the standard blend. When only one signal is available it is used on its own.
     """
     if comparable_median is not None and model_pred is not None:
-        comparable_weight = _MODEL_WEIGHT - 0.4 * ((50 - n_comparables) / 44)**6.048
+        comparable_weight = _MODEL_WEIGHT - 0.4 * ((50 - n_comparables) / 44) ** 6.048
         if n_comparables < _MIN_CONFIDENT_COMPARABLES:
             comparable_weight *= n_comparables / _MIN_CONFIDENT_COMPARABLES
         return comparable_weight * comparable_median + (1 - comparable_weight) * model_pred
