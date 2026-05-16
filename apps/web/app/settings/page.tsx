@@ -68,7 +68,7 @@ function BillingCard({ billing }: { billing: BillingStatus }) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>Subscription</CardTitle>
           <Badge variant={isPro && isActive ? "success" : "secondary"}>
             {isPro ? "Pro" : "Free"}
@@ -168,7 +168,7 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <div className="px-4 sm:px-8 py-8">
+      <div className="px-4 py-6 sm:px-8 sm:py-8">
         <div className="max-w-3xl mx-auto space-y-8">
           <header className="pb-4 border-b border-border">
             <h1 className="text-xl font-semibold">Settings</h1>
@@ -262,13 +262,13 @@ export default function SettingsPage() {
               </Card>
 
               {/* Save */}
-              <div className="flex items-center justify-end gap-4">
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
                 {saveMsg && (
                   <span className={`text-sm ${saveMsg === "Saved" ? "text-emerald-600" : "text-destructive"}`}>
                     {saveMsg}
                   </span>
                 )}
-                <Button onClick={handleSave} disabled={saving}>
+                <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
                   {saving ? "Saving…" : "Save settings"}
                 </Button>
               </div>
@@ -305,8 +305,8 @@ export default function SettingsPage() {
                   ) : (
                     <ul className="divide-y divide-border">
                       {reprices.map((r) => (
-                        <li key={r.id} className="py-3 flex items-center justify-between text-sm">
-                          <div className="min-w-0 flex-1 mr-4">
+                        <li key={r.id} className="py-3 flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0 flex-1">
                             <p className="font-medium truncate">
                               {r.listing_url ? (
                                 <a href={r.listing_url} target="_blank" rel="noreferrer" className="hover:underline">
@@ -316,7 +316,7 @@ export default function SettingsPage() {
                             </p>
                             <p className="text-xs text-muted-foreground">{formatDate(r.repriced_at)}</p>
                           </div>
-                          <div className="text-right shrink-0">
+                          <div className="shrink-0 sm:text-right">
                             <span className="text-muted-foreground line-through mr-2">{formatGBP(r.old_price)}</span>
                             <span className="font-semibold">{formatGBP(r.new_price)}</span>
                           </div>

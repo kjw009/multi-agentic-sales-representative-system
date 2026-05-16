@@ -51,7 +51,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4 bg-background">
+    <div className="min-h-dvh flex flex-col items-center justify-center gap-4 px-4 py-8 bg-background">
       <Card className="w-full max-w-sm">
         <CardHeader className="pb-2">
           <CardTitle className="text-center text-xl">SalesRep</CardTitle>

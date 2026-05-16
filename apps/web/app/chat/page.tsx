@@ -66,7 +66,7 @@ function PricingPanel({ pricing }: { pricing: PricingResult }) {
 
         <ConfidenceBar score={pricing.confidence_score} />
 
-        <div className="flex justify-between text-sm">
+        <div className="flex flex-wrap justify-between gap-2 text-sm">
           <span className="text-muted-foreground">Walk-away floor</span>
           <span className="font-medium">{fmt(pricing.min_acceptable_price)}</span>
         </div>
@@ -148,7 +148,7 @@ function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium">{labels[listing.status] ?? listing.status}</p>
           <Badge variant={badgeVariant[listing.status] ?? "secondary"}>
             {listing.status}
@@ -363,15 +363,15 @@ function ChatPageInner() {
         connectingEbay={connectingEbay}
       >
         {/* Messages */}
-        <div className="flex flex-col h-screen">
-          <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-4">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6 space-y-4">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className="max-w-lg space-y-2">
+                <div className="max-w-[min(32rem,88vw)] space-y-2 sm:max-w-lg">
                   {m.imageUrl && (
                     <div className="flex justify-end">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={m.imageUrl} alt="upload" className="max-h-48 rounded-xl border border-border object-cover" />
+                      <img src={m.imageUrl} alt="upload" className="max-h-48 max-w-full rounded-xl border border-border object-cover" />
                     </div>
                   )}
                   {m.content && (
@@ -404,12 +404,17 @@ function ChatPageInner() {
                 <div className="bg-card border border-border rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-muted-foreground">…</div>
               </div>
             )}
+            {panel && (
+              <div className="xl:hidden pt-2">
+                {panel}
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple className="hidden" onChange={handleFileChange} />
 
-          <form onSubmit={sendMessage} className="border-t border-border bg-card px-4 sm:px-6 py-4 flex gap-3">
+          <form onSubmit={sendMessage} className="border-t border-border bg-card px-3 py-3 sm:px-6 sm:py-4 flex gap-2 sm:gap-3">
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}

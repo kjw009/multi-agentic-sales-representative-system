@@ -61,7 +61,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4 py-12">
+    <div className="min-h-dvh bg-background flex flex-col items-center justify-center px-4 py-8 sm:py-12">
       <div className="w-full max-w-lg space-y-8">
         {/* Brand */}
         <div className="text-center">
@@ -121,6 +121,7 @@ export default function OnboardingPage() {
                   variant={ebayConnected ? "default" : "ghost"}
                   size="sm"
                   onClick={() => setStep(1)}
+                  className="w-full sm:w-auto"
                 >
                   {ebayConnected ? "Continue" : "Skip for now"}
                   <ChevronRight size={14} />
@@ -167,9 +168,9 @@ export default function OnboardingPage() {
                   <p className="text-xs text-muted-foreground mt-1 ml-7">{opt.description}</p>
                 </label>
               ))}
-              <div className="flex justify-between pt-2">
-                <Button variant="ghost" size="sm" onClick={() => setStep(0)}>Back</Button>
-                <Button size="sm" onClick={() => setStep(2)}>
+              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-between">
+                <Button variant="ghost" size="sm" onClick={() => setStep(0)} className="w-full sm:w-auto">Back</Button>
+                <Button size="sm" onClick={() => setStep(2)} className="w-full sm:w-auto">
                   Continue <ChevronRight size={14} />
                 </Button>
               </div>
@@ -200,9 +201,9 @@ export default function OnboardingPage() {
                   Reply mode: <span className="font-medium text-foreground capitalize">{autonomy.replace(/_/g, " ")}</span>
                 </li>
               </ul>
-              <div className="flex justify-between pt-2">
-                <Button variant="ghost" size="sm" onClick={() => setStep(1)}>Back</Button>
-                <Button onClick={finishOnboarding} disabled={saving}>
+              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-between">
+                <Button variant="ghost" size="sm" onClick={() => setStep(1)} className="w-full sm:w-auto">Back</Button>
+                <Button onClick={finishOnboarding} disabled={saving} className="w-full sm:w-auto">
                   {saving ? "Saving…" : "Go to chat"}
                 </Button>
               </div>
