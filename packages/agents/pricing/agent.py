@@ -31,6 +31,7 @@ import re
 # for single-item inference.
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
+import math
 import pickle
 import statistics
 import uuid
@@ -145,7 +146,6 @@ _TARGET_COMPARABLES = 20  # Try to find 20 matching items on eBay
 _MIN_CONFIDENT_COMPARABLES = 6
 _MAX_SEARCH_ROUNDS = 3  # Rounds 0-1 use condition filter; round 2 drops it as fallback
 
-_CONFIDENCE_TARGET_COMPARABLES = 10
 _CONFIDENCE_STOPWORDS = {
     "a",
     "an",
@@ -361,19 +361,16 @@ def _comparable_similarity_score(item: Item, comparable: Comparable) -> float:
 
 
 def _price_consistency_score(prices: list[float]) -> float:
-    if not prices:
-        return 0.0
-    if len(prices) == 1:
-        return 0.6
+    """CV-based price tightness: 1.0 = perfectly consistent, 0.0 = highly spread.
 
-    median = float(np.median(prices))
-    if median <= 0:
-        return 0.0
-
-    q1 = float(np.percentile(prices, 25))
-    q3 = float(np.percentile(prices, 75))
-    spread_ratio = max(q3 - q1, 0.0) / median
-    return max(0.0, min(1.0 - spread_ratio, 1.0))
+    Single-comparable case returns 1.0 (no spread to measure).
+    Guaranteed no division-by-zero because callers filter for price > 0.
+    """
+    if len(prices) <= 1:
+        return 1.0
+    price_mean = sum(prices) / len(prices)
+    price_std_dev = statistics.stdev(prices)
+    return max(0.0, 1.0 - (price_std_dev / price_mean))
 
 
 def _item_completeness_score(item: Item) -> float:
@@ -396,41 +393,44 @@ def _item_completeness_score(item: Item) -> float:
 def _calculate_pricing_confidence(
     item: Item,
     validated_comparables: list[Comparable],
-    model_pred: float | None,
 ) -> PricingConfidence:
+    """Multiplicative-Additive Hybrid confidence formula.
+
+    confidence = (avg_similarity * (0.6 * s_count + 0.4 * s_consistency)) * 0.8
+                 + item_completeness * 0.2
+
+    When 0 comparables exist avg_similarity is 0.0, so the first term collapses
+    to 0 and confidence = 0.2 * item_completeness — no special-casing needed.
+    """
     priced_comparables = [c for c in validated_comparables if c.price > 0]
     prices = [c.price for c in priced_comparables]
-    count_score = min(len(prices) / _CONFIDENCE_TARGET_COMPARABLES, 1.0)
-    item_completeness = _item_completeness_score(item)
+    n = len(prices)
+
+    s_count = math.sqrt(min(n, 20) / 20)
+    s_consistency = _price_consistency_score(prices)
 
     similarity_scores = {
         c.item_id: round(_comparable_similarity_score(item, c), 4) for c in priced_comparables
     }
-    average_similarity = (
+    avg_similarity = (
         float(sum(similarity_scores.values()) / len(similarity_scores))
         if similarity_scores
         else 0.0
     )
-    price_consistency = _price_consistency_score(prices)
 
-    if prices:
-        confidence = (
-            0.35 * count_score
-            + 0.35 * average_similarity
-            + 0.20 * price_consistency
-            + 0.10 * item_completeness
-        )
-    elif model_pred is not None:
-        confidence = min(0.25 * item_completeness, 0.30)
-    else:
-        confidence = 0.0
+    item_completeness = _item_completeness_score(item)
+
+    confidence = (
+        avg_similarity * (0.6 * s_count + 0.4 * s_consistency) * 0.8
+        + item_completeness * 0.2
+    )
 
     return PricingConfidence(
-        count_score=round(count_score, 4),
-        average_similarity_score=round(average_similarity, 4),
-        price_consistency_score=round(price_consistency, 4),
+        count_score=round(s_count, 4),
+        average_similarity_score=round(avg_similarity, 4),
+        price_consistency_score=round(s_consistency, 4),
         item_completeness_score=round(item_completeness, 4),
-        final_confidence=round(max(0.0, min(confidence, 1.0)), 4),
+        final_confidence=round(max(0.0, min(1.0, confidence)), 4),
         comparable_similarity_scores=similarity_scores,
     )
 
@@ -888,7 +888,7 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         price_low = 0.0
         price_high = 0.0
 
-    confidence_components = _calculate_pricing_confidence(row, validated, model_pred)
+    confidence_components = _calculate_pricing_confidence(row, validated)
     confidence = confidence_components.final_confidence
 
     comparable_std = float(statistics.stdev(prices)) if len(prices) >= 2 else 0.0
