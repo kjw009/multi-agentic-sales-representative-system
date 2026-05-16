@@ -762,7 +762,9 @@ async def _publish_via_trading_api(
     ack = root.findtext("ebay:Ack", namespaces=ns)
     if ack not in ("Success", "Warning"):
         msgs = _trading_api_error_messages(root)
-        raise RuntimeError(f"Trading API AddFixedPriceItem failed: {'; '.join(msgs)}")
+        raise RuntimeError(
+            f"Trading API AddFixedPriceItem failed: {'; '.join(msgs)}"
+        )
 
     ebay_item_id = root.findtext("ebay:ItemID", namespaces=ns)
     if not ebay_item_id:
