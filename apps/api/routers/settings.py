@@ -16,7 +16,12 @@ from apps.api.deps import get_current_seller
 from packages.db.models import AutonomyLevel, Seller
 from packages.db.session import get_session
 
-_DEMO_WRITE_FIELDS = {"autonomy_level", "stale_threshold_days", "max_reprice_count"}
+_DEMO_WRITE_FIELDS = {
+    "autonomy_level",
+    "stale_threshold_days",
+    "max_reprice_count",
+    "require_listing_approval",
+}
 
 # get_current_seller and get_session may return objects from different
 # SQLAlchemy sessions when dependencies are overridden in tests. In production
@@ -38,12 +43,14 @@ class SellerSettings(BaseModel):
     autonomy_level: AutonomyLevel
     stale_threshold_days: int = Field(ge=_MIN_STALE_DAYS, le=_MAX_STALE_DAYS)
     max_reprice_count: int = Field(ge=_MIN_REPRICE, le=_MAX_REPRICE)
+    require_listing_approval: bool
 
 
 class SellerSettingsPatch(BaseModel):
     autonomy_level: AutonomyLevel | None = None
     stale_threshold_days: int | None = Field(default=None, ge=_MIN_STALE_DAYS, le=_MAX_STALE_DAYS)
     max_reprice_count: int | None = Field(default=None, ge=_MIN_REPRICE, le=_MAX_REPRICE)
+    require_listing_approval: bool | None = None
 
 
 def _serialise(seller: Seller) -> dict[str, Any]:
@@ -51,6 +58,7 @@ def _serialise(seller: Seller) -> dict[str, Any]:
         "autonomy_level": seller.autonomy_level.value,
         "stale_threshold_days": seller.stale_threshold_days,
         "max_reprice_count": seller.max_reprice_count,
+        "require_listing_approval": seller.require_listing_approval,
     }
 
 
@@ -71,6 +79,7 @@ async def update_seller_settings(
         body.autonomy_level is None
         and body.stale_threshold_days is None
         and body.max_reprice_count is None
+        and body.require_listing_approval is None
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -88,6 +97,8 @@ async def update_seller_settings(
         db_seller.stale_threshold_days = body.stale_threshold_days
     if body.max_reprice_count is not None:
         db_seller.max_reprice_count = body.max_reprice_count
+    if body.require_listing_approval is not None:
+        db_seller.require_listing_approval = body.require_listing_approval
 
     await session.commit()
     await session.refresh(db_seller)

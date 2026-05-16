@@ -62,6 +62,7 @@ class Platform(enum.StrEnum):
 
 class ListingStatus(enum.StrEnum):
     # Listing lifecycle through publishing → sale
+    pending_approval = "pending_approval"  # Priced and waiting for seller approval
     publishing = "publishing"  # Being pushed to marketplace
     live = "live"  # Visible and active on marketplace
     ended = "ended"  # Closed (sold, withdrawn, etc.)
@@ -139,6 +140,8 @@ class Seller(Base):
     stale_threshold_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
     # Hard cap on automatic reprices per listing
     max_reprice_count: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    # Default-on approval gate before a priced item is published to eBay
+    require_listing_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Onboarding + demo flags (Phase 7)
     onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

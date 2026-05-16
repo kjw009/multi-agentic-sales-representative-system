@@ -75,7 +75,7 @@ export interface EbayStatusResponse {
 }
 
 export interface ListingStatus {
-  status: "publishing" | "live" | "ended" | "error" | "needs_specifics";
+  status: "pending_approval" | "publishing" | "live" | "ended" | "error" | "needs_specifics";
   url: string | null;
   external_id: string | null;
   posted_price: number | null;
@@ -98,6 +98,7 @@ export interface SellerSettings {
   autonomy_level: AutonomyLevel;
   stale_threshold_days: number;
   max_reprice_count: number;
+  require_listing_approval: boolean;
 }
 
 export interface RepriceEvent {
@@ -170,6 +171,11 @@ export const api = {
   // Returns null while listing is not yet created, ListingStatus once publisher runs
   getListingStatus: (itemId: string) =>
     request<ListingStatus | null>(`/agent/intake/listing/${itemId}`),
+
+  approveListing: (itemId: string) =>
+    request<{ status: string }>(`/agent/intake/listing/${itemId}/approve`, {
+      method: "POST",
+    }),
 
   getDrafts: () =>
     request<DraftMessage[]>("/conversations/drafts"),
