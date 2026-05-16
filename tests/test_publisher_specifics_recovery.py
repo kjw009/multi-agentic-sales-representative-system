@@ -6,6 +6,9 @@ status branch are deferred until we have a DB-backed pytest fixture.
 """
 
 from packages.agents.publisher.agent import _parse_missing_specifics
+from packages.platform_adapters.ebay.sell import _trading_api_error_messages
+
+_NS = "urn:ebay:apis:eBLBaseComponents"
 
 
 def test_returns_empty_for_unrelated_error() -> None:
@@ -46,3 +49,27 @@ def test_case_insensitive_match() -> None:
 
 def test_empty_string() -> None:
     assert _parse_missing_specifics("") == []
+
+
+def test_trading_api_errors_ignore_warning_noise() -> None:
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(
+        f"""
+        <AddFixedPriceItemResponse xmlns="{_NS}">
+          <Ack>Failure</Ack>
+          <Errors>
+            <SeverityCode>Warning</SeverityCode>
+            <LongMessage>Funds from your sales may be unavailable and show as on hold.</LongMessage>
+          </Errors>
+          <Errors>
+            <SeverityCode>Error</SeverityCode>
+            <LongMessage>The item cannot be listed because the category requires a valid EAN.</LongMessage>
+          </Errors>
+        </AddFixedPriceItemResponse>
+        """
+    )
+
+    assert _trading_api_error_messages(root) == [
+        "The item cannot be listed because the category requires a valid EAN."
+    ]
