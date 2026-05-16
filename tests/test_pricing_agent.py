@@ -23,7 +23,7 @@ def test_get_sentence_model_missing_dependency_raises():
 
 
 # ---------------------------------------------------------------------------
-# _blend_price — confidence-weighted blend of model prediction + comparables
+# _blend_price — model-dominant blend of model prediction + comparables
 # ---------------------------------------------------------------------------
 
 # A low comparable median (100) vs a higher model prediction (200) makes the
@@ -36,17 +36,23 @@ _HIGH_MODEL = 200.0
     "n_comparables",
     [agent._MIN_CONFIDENT_COMPARABLES, agent._MIN_CONFIDENT_COMPARABLES + 10],
 )
-def test_blend_price_uses_standard_split_when_comparables_are_sufficient(n_comparables):
-    """At or above the threshold the standard _MODEL_WEIGHT split is used."""
-    expected = (1 - agent._MODEL_WEIGHT) * _LOW_MEDIAN + agent._MODEL_WEIGHT * _HIGH_MODEL
+def test_blend_price_uses_model_dominant_curve_when_comparables_are_sufficient(n_comparables):
+    """At or above the threshold the comparable signal follows the model-dominant curve."""
+    comparable_weight = 0.4 * ((50 - n_comparables) / 44) ** 6.048
+    expected = comparable_weight * _LOW_MEDIAN + (
+        agent._MODEL_WEIGHT - comparable_weight
+    ) * _HIGH_MODEL
     assert _blend_price(_LOW_MEDIAN, _HIGH_MODEL, n_comparables) == pytest.approx(expected)
 
 
 def test_blend_price_tapers_comparable_weight_when_too_few_comparables():
     """Below the threshold the median's weight shrinks, shifting trust to the model."""
     few = agent._MIN_CONFIDENT_COMPARABLES - 1
-    comparable_weight = (1 - agent._MODEL_WEIGHT) * (few / agent._MIN_CONFIDENT_COMPARABLES)
-    expected = comparable_weight * _LOW_MEDIAN + (1 - comparable_weight) * _HIGH_MODEL
+    comparable_weight = 0.4 * ((50 - few) / 44) ** 6.048
+    comparable_weight *= few / agent._MIN_CONFIDENT_COMPARABLES
+    expected = comparable_weight * _LOW_MEDIAN + (
+        agent._MODEL_WEIGHT - comparable_weight
+    ) * _HIGH_MODEL
 
     result = _blend_price(_LOW_MEDIAN, _HIGH_MODEL, few)
 

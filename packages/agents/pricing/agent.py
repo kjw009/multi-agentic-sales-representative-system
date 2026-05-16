@@ -136,7 +136,7 @@ def _get_sentence_model():
 # ---------------------------------------------------------------------------
 
 _DEFAULT_FLOOR_RATIO = 0.70  # Default minimum price is 70% of recommended
-_MODEL_WEIGHT = 1  # ML Model contributes 60% to final price
+_MODEL_WEIGHT = 1  # ML model gets the dominant final-price signal.
 _TARGET_COMPARABLES = 20  # Try to find 20 matching items on eBay
 # Below this many comparables the median is treated as small-sample noise: its
 # weight in the final blend tapers linearly toward 0 and the freed weight shifts
