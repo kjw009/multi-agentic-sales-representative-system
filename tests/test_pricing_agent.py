@@ -4,7 +4,12 @@ from unittest.mock import patch
 import pytest
 
 from packages.agents.pricing import agent
-from packages.agents.pricing.agent import _blend_price, _calculate_pricing_confidence
+from packages.agents.pricing.agent import (
+    _blend_price,
+    _calculate_pricing_confidence,
+    _compute_dynamic_floor,
+    _compute_negotiating_posture,
+)
 from packages.agents.pricing.comparable_filter import validate_comparables
 from packages.platform_adapters.ebay.browse import Comparable
 
@@ -227,3 +232,89 @@ async def test_validate_comparables_includes_visual_condition_context(monkeypatc
     user_message = captured["messages"][1]["content"]
     assert "Photo condition analysis" in user_message
     assert "minor sole wear" in user_message
+
+
+# ---------------------------------------------------------------------------
+# _compute_dynamic_floor — formula-driven walk-away price
+# ---------------------------------------------------------------------------
+
+_VOL_T = 0.15  # default volatility_threshold
+_CONF_T = 0.60  # default confidence_threshold
+
+
+def test_dynamic_floor_typical_case():
+    # floor = 100 - 20 * 0.30 * 2.0 = 88.0
+    result = _compute_dynamic_floor(20.0, 0.70, 100.0, 2.0)
+    assert result == pytest.approx(88.0)
+
+
+def test_dynamic_floor_liquidator_scenario():
+    # High std + low confidence → significant discount
+    result = _compute_dynamic_floor(30.0, 0.30, 100.0, 2.0)
+    assert result is not None
+    assert result < 80.0
+
+
+def test_dynamic_floor_clamp_lower_bound():
+    # Extreme inputs must not collapse below 20% of recommended
+    result = _compute_dynamic_floor(500.0, 0.0, 100.0, 10.0)
+    assert result is not None
+    assert result >= 20.0
+
+
+def test_dynamic_floor_clamp_upper_bound():
+    # Very small std + high confidence must not reach or exceed recommended
+    result = _compute_dynamic_floor(0.01, 0.99, 100.0, 2.0)
+    assert result is not None
+    assert result <= 99.0
+
+
+def test_dynamic_floor_returns_none_when_std_zero():
+    assert _compute_dynamic_floor(0.0, 0.80, 100.0, 2.0) is None
+
+
+def test_dynamic_floor_returns_none_when_recommended_zero():
+    assert _compute_dynamic_floor(10.0, 0.80, 0.0, 2.0) is None
+
+
+def test_dynamic_floor_higher_lambda_lowers_floor():
+    floor_low_lambda = _compute_dynamic_floor(20.0, 0.50, 100.0, 1.0)
+    floor_high_lambda = _compute_dynamic_floor(20.0, 0.50, 100.0, 3.0)
+    assert floor_low_lambda is not None and floor_high_lambda is not None
+    assert floor_high_lambda < floor_low_lambda
+
+
+# ---------------------------------------------------------------------------
+# _compute_negotiating_posture — four-quadrant classification
+# ---------------------------------------------------------------------------
+
+
+def test_posture_speculator():
+    # High vol (std=20 > 0.15*100=15), high conf (0.80 >= 0.60)
+    assert _compute_negotiating_posture(20.0, 0.80, 100.0, _VOL_T, _CONF_T) == "THE_SPECULATOR"
+
+
+def test_posture_liquidator():
+    # High vol (std=20 > 15), low conf (0.40 < 0.60)
+    assert _compute_negotiating_posture(20.0, 0.40, 100.0, _VOL_T, _CONF_T) == "THE_LIQUIDATOR"
+
+
+def test_posture_commodity_firm():
+    # Low vol (std=5 <= 15), high conf (0.80)
+    assert _compute_negotiating_posture(5.0, 0.80, 100.0, _VOL_T, _CONF_T) == "THE_COMMODITY_FIRM"
+
+
+def test_posture_cautious_move():
+    # Low vol (std=5 <= 15), low conf (0.40)
+    assert _compute_negotiating_posture(5.0, 0.40, 100.0, _VOL_T, _CONF_T) == "THE_CAUTIOUS_MOVE"
+
+
+def test_posture_boundary_at_volatility_threshold():
+    # std exactly at threshold (15 == 0.15*100) → low volatility side
+    assert _compute_negotiating_posture(15.0, 0.80, 100.0, _VOL_T, _CONF_T) == "THE_COMMODITY_FIRM"
+
+
+def test_posture_no_comparables_defaults_to_low_volatility():
+    # std=0 → always low volatility; posture driven by confidence alone
+    assert _compute_negotiating_posture(0.0, 0.80, 100.0, _VOL_T, _CONF_T) == "THE_COMMODITY_FIRM"
+    assert _compute_negotiating_posture(0.0, 0.40, 100.0, _VOL_T, _CONF_T) == "THE_CAUTIOUS_MOVE"

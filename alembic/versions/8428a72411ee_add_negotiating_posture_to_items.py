@@ -1,7 +1,7 @@
 """add negotiating_posture to items
 
 Revision ID: 8428a72411ee
-Revises: 0017_listing_approval
+Revises: a1b2c3d4e5f6
 Create Date: 2026-05-16 00:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "8428a72411ee"
-down_revision: str | None = "0017_listing_approval"
+down_revision: str | None = "a1b2c3d4e5f6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

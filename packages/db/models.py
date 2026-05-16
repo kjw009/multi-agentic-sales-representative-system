@@ -259,6 +259,7 @@ class Item(Base):
     price_low: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI lower bound
     price_high: Mapped[float | None] = mapped_column(Numeric(12, 2))  # CI upper bound
     pricing_comparables: Mapped[list[Any] | None] = mapped_column(JSONB)  # raw comparable listings
+    negotiating_posture: Mapped[str | None] = mapped_column(String(32))
 
     # eBay item-specific names that the seller still owes us before the
     # listing can publish. Populated by the publisher when AddFixedPriceItem

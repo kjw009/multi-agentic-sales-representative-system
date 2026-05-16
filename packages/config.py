@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     langsmith_api_key: str = ""
     langsmith_project: str = "salesrep"
 
+    # ── Agent 2 — dynamic floor and negotiating posture ───────────────────
+    pricing_risk_multiplier_lambda: float = 2.0
+    pricing_volatility_threshold: float = 0.15  # fraction of recommended_price
+    pricing_confidence_threshold: float = 0.60
+
     # ── Stripe billing ─────────────────────────────────────────────────────
     billing_enabled: bool = False
     stripe_secret_key: str = ""

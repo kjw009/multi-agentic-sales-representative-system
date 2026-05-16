@@ -55,6 +55,7 @@ async def pricing_node(state: PipelineState, config: RunnableConfig) -> dict[str
             item.price_low = result.price_low
             item.price_high = result.price_high
             item.pricing_comparables = [c.model_dump() for c in result.comparables]
+            item.negotiating_posture = result.negotiating_posture
             item.status = ItemStatus.priced
             await session.commit()
 

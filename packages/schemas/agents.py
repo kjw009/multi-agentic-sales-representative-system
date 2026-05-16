@@ -37,6 +37,8 @@ class PricingResult(BaseModel):
     price_low: float = 0.0
     price_high: float = 0.0
     comparables: list[ComparableListing] = []
+    price_std_dev: float = 0.0
+    negotiating_posture: str = "THE_CAUTIOUS_MOVE"
 
 
 class ListingResult(BaseModel):
