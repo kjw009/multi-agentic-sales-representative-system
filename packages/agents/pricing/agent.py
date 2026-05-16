@@ -20,7 +20,6 @@ Comparable collection uses a multi-round adaptive strategy:
   Each round's results are LLM-validated before being added to the pool.
 """
 
-from openpyxl.descriptors.base import _M
 import json
 import logging
 import os
@@ -777,7 +776,9 @@ def _blend_price(
         comparable_weight = 0.4 * ((50 - n_comparables) / 44) ** 6.048
         if n_comparables < _MIN_CONFIDENT_COMPARABLES:
             comparable_weight *= n_comparables / _MIN_CONFIDENT_COMPARABLES
-        return comparable_weight * comparable_median + (_MODEL_WEIGHT - comparable_weight) * model_pred
+        return (
+            comparable_weight * comparable_median + (_MODEL_WEIGHT - comparable_weight) * model_pred
+        )
     if comparable_median is not None:
         return comparable_median
     if model_pred is not None:
