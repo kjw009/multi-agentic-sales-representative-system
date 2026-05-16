@@ -46,7 +46,7 @@ services:
     profiles: ["worker"]
     image: ${API_IMAGE}
     env_file: .env
-    command: uv run python -m workers.sqs_worker
+    command: python -m workers.sqs_worker
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-salesrep}:${POSTGRES_PASSWORD:-salesrep}@postgres:5432/${POSTGRES_DB:-salesrep}
       SQS_QUEUE_URL: ${SQS_QUEUE_URL:-}
