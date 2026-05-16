@@ -136,7 +136,7 @@ def _get_sentence_model():
 # ---------------------------------------------------------------------------
 
 _DEFAULT_FLOOR_RATIO = 0.70  # Default minimum price is 70% of recommended
-_MODEL_WEIGHT = 0.60  # ML Model contributes 60% to final price
+_MODEL_WEIGHT = 1  # ML Model contributes 60% to final price
 _TARGET_COMPARABLES = 20  # Try to find 20 matching items on eBay
 # Below this many comparables the median is treated as small-sample noise: its
 # weight in the final blend tapers linearly toward 0 and the freed weight shifts
@@ -773,7 +773,7 @@ def _blend_price(
     the standard blend. When only one signal is available it is used on its own.
     """
     if comparable_median is not None and model_pred is not None:
-        comparable_weight = 1 - _MODEL_WEIGHT
+        comparable_weight = _MODEL_WEIGHT - 0.4 * ((50 - n_comparables) / 44)**6.048
         if n_comparables < _MIN_CONFIDENT_COMPARABLES:
             comparable_weight *= n_comparables / _MIN_CONFIDENT_COMPARABLES
         return comparable_weight * comparable_median + (1 - comparable_weight) * model_pred
