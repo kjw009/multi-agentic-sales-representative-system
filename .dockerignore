@@ -16,6 +16,13 @@ build/
 .coverage
 htmlcov/
 
+# Frontend build artefacts/dependencies are validated in CI but are not needed
+# in the backend runtime image.
+apps/web/node_modules/
+apps/web/.next/
+apps/web/.vercel/
+apps/web/tsconfig.tsbuildinfo
+
 # Notebooks & training data (not needed at runtime)
 notebooks/
 datasets/

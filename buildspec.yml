@@ -117,6 +117,7 @@ phases:
             "export API_IMAGE='"$API_IMAGE"'",
             "export ECR_REGISTRY='"$ECR_REGISTRY"'",
             "sudo docker container prune -f",
+            "if ! command -v aws >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y awscli; fi",
             "aws ecr get-login-password --region '"$AWS_REGION"' | sudo docker login --username AWS --password-stdin $ECR_REGISTRY",
             "sudo -E docker compose -f docker-compose.prod.yml --profile worker pull api sqs-worker",
             "sudo -E docker compose -f docker-compose.prod.yml run --rm api uv run alembic upgrade head",
