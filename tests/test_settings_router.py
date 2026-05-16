@@ -51,6 +51,7 @@ async def test_get_settings_returns_defaults():
         assert body["autonomy_level"] == "draft"
         assert body["stale_threshold_days"] == 7
         assert body["max_reprice_count"] == 3
+        assert body["require_listing_approval"] is True
 
 
 @pytest.mark.asyncio
@@ -74,6 +75,7 @@ async def test_patch_settings_updates_fields():
                         "autonomy_level": "auto_low_risk",
                         "stale_threshold_days": 14,
                         "max_reprice_count": 5,
+                        "require_listing_approval": False,
                     },
                 )
         finally:
@@ -84,11 +86,13 @@ async def test_patch_settings_updates_fields():
         assert body["autonomy_level"] == "auto_low_risk"
         assert body["stale_threshold_days"] == 14
         assert body["max_reprice_count"] == 5
+        assert body["require_listing_approval"] is False
 
         await session.refresh(seller)
         assert seller.autonomy_level == AutonomyLevel.auto_low_risk
         assert seller.stale_threshold_days == 14
         assert seller.max_reprice_count == 5
+        assert seller.require_listing_approval is False
 
 
 @pytest.mark.asyncio

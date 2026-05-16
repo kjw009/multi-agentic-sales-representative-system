@@ -8,14 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.deps import get_current_seller
 from packages.agents.intake.agent import load_history
 from packages.agents.intake.agent import run as run_agent
-from packages.agents.pipeline import run_pipeline
+from packages.agents.pipeline import run_pipeline, run_publisher_only
 from packages.config import settings
 from packages.db.models import (
     ChatMessage,
     ChatRole,
     ClarificationRequest,
     Item,
+    ItemStatus,
     Listing,
+    ListingStatus,
     Platform,
     Seller,
 )
@@ -221,3 +223,59 @@ async def get_listing_status(
         "external_id": listing.external_id,
         "posted_price": float(listing.posted_price) if listing.posted_price else None,
     }
+
+
+@router.post("/listing/{item_id}/approve")
+async def approve_listing(
+    item_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    seller: Seller = Depends(get_current_seller),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, str]:
+    """Approve a priced listing and resume publishing to eBay."""
+    item = await session.scalar(select(Item).where(Item.id == item_id, Item.seller_id == seller.id))
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    if item.recommended_price is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Listing is not priced yet"
+        )
+
+    listing = await session.scalar(
+        select(Listing).where(
+            Listing.item_id == item_id,
+            Listing.seller_id == seller.id,
+            Listing.platform == Platform.ebay,
+        )
+    )
+    if listing is None:
+        listing = Listing(
+            item_id=item_id,
+            seller_id=seller.id,
+            platform=Platform.ebay,
+            status=ListingStatus.publishing,
+            posted_price=item.recommended_price,
+        )
+        session.add(listing)
+    elif listing.status == ListingStatus.live:
+        return {"status": ListingStatus.live.value}
+    elif listing.status not in {ListingStatus.pending_approval, ListingStatus.error}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Listing is already {listing.status}",
+        )
+
+    listing.status = ListingStatus.publishing
+    listing.close_reason = None
+    listing.posted_price = item.recommended_price
+    item.status = ItemStatus.publishing
+    await session.commit()
+
+    if settings.sqs_queue_url:
+        from packages.bus.sqs import enqueue
+
+        enqueue("publish_only", seller_id=str(seller.id), item_id=str(item_id))
+    else:
+        background_tasks.add_task(run_publisher_only, seller.id, item_id)
+
+    return {"status": ListingStatus.publishing.value}

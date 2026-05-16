@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, Send } from "lucide-react";
+import { Camera, CheckCircle2, Send, X } from "lucide-react";
 import { api, PricingResult, ListingStatus } from "@/lib/api";
 import { AppShell } from "@/components/AppShell";
 import { Toast, ToastType } from "@/components/Toast";
@@ -127,8 +127,15 @@ function PricingPanelSkeleton() {
 
 /* ── Listing status panel ───────────────────────────────────────────── */
 
-function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
+function ListingStatusPanel({
+  listing,
+  onReview,
+}: {
+  listing: ListingStatus;
+  onReview: () => void;
+}) {
   const badgeVariant: Record<string, "success" | "warning" | "destructive" | "info" | "secondary"> = {
+    pending_approval: "warning",
     live: "success",
     publishing: "warning",
     error: "destructive",
@@ -136,6 +143,7 @@ function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
     ended: "secondary",
   };
   const labels: Record<string, string> = {
+    pending_approval: "Ready for approval",
     live: "Live on eBay",
     publishing: "Publishing…",
     error: "Publish failed",
@@ -144,9 +152,22 @@ function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
       : "More info needed",
     ended: "Listing ended",
   };
+  const isPendingApproval = listing.status === "pending_approval";
 
   return (
-    <Card>
+    <Card
+      role={isPendingApproval ? "button" : undefined}
+      tabIndex={isPendingApproval ? 0 : undefined}
+      onClick={isPendingApproval ? onReview : undefined}
+      onKeyDown={(e) => {
+        if (!isPendingApproval) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onReview();
+        }
+      }}
+      className={isPendingApproval ? "cursor-pointer transition-colors hover:bg-accent/40" : undefined}
+    >
       <CardContent className="p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium">{labels[listing.status] ?? listing.status}</p>
@@ -158,6 +179,9 @@ function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
           <p className="text-xs text-muted-foreground">
             Listed at <span className="font-medium text-foreground">{fmt(listing.posted_price)}</span>
           </p>
+        )}
+        {isPendingApproval && (
+          <p className="text-xs text-muted-foreground">Click to review before publishing</p>
         )}
         {listing.url && (
           <a
@@ -171,6 +195,71 @@ function ListingStatusPanel({ listing }: { listing: ListingStatus }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function ListingApprovalPrompt({
+  listing,
+  pricing,
+  approving,
+  onApprove,
+  onClose,
+}: {
+  listing: ListingStatus;
+  pricing: PricingResult | null;
+  approving: boolean;
+  onApprove: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 px-4 backdrop-blur-sm">
+      <Card className="w-full max-w-md">
+        <CardContent className="p-5 space-y-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-base font-semibold">Review listing</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This listing is ready to go live on eBay.
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close review">
+              <X size={16} />
+            </Button>
+          </div>
+
+          <div className="space-y-2 rounded-xl border border-border bg-muted/40 p-3 text-sm">
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">Recommended price</span>
+              <span className="font-medium">
+                {pricing ? fmt(pricing.recommended_price) : listing.posted_price != null ? fmt(listing.posted_price) : "Pending"}
+              </span>
+            </div>
+            {pricing && pricing.price_low > 0 && pricing.price_high > 0 && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Price range</span>
+                <span className="font-medium">{fmt(pricing.price_low)} - {fmt(pricing.price_high)}</span>
+              </div>
+            )}
+            {pricing && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Walk-away floor</span>
+                <span className="font-medium">{fmt(pricing.min_acceptable_price)}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={onClose} disabled={approving}>
+              Keep as draft
+            </Button>
+            <Button onClick={onApprove} disabled={approving}>
+              <CheckCircle2 size={15} />
+              {approving ? "Publishing…" : "Approve & publish"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -191,6 +280,8 @@ function ChatPageInner() {
   const [pricingPending, setPricingPending] = useState(false);
   const [listingStatus, setListingStatus] = useState<ListingStatus | null>(null);
   const [listingPending, setListingPending] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(false);
+  const [approvingListing, setApprovingListing] = useState(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollAttempts = useRef(0);
@@ -221,10 +312,10 @@ function ChatPageInner() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
-  const startPolling = useCallback((id: string) => {
+  const startPolling = useCallback((id: string, pollPricing = true) => {
     if (pollRef.current) clearInterval(pollRef.current);
     pollAttempts.current = 0;
-    setPricingPending(true);
+    if (pollPricing) setPricingPending(true);
 
     pollRef.current = setInterval(async () => {
       pollAttempts.current++;
@@ -235,7 +326,7 @@ function ChatPageInner() {
         return;
       }
       try {
-        if (!pricingResult) {
+        if (pollPricing && !pricingResult) {
           const result = await api.getPricing(id);
           if (result) {
             setPricingPending(false);
@@ -257,7 +348,7 @@ function ChatPageInner() {
               );
             }
           }
-          if (["live","error","ended","needs_specifics"].includes(ls.status)) {
+          if (["pending_approval","live","error","ended","needs_specifics"].includes(ls.status)) {
             setListingPending(false);
             if (!pricingPending) clearInterval(pollRef.current!);
           }
@@ -329,6 +420,23 @@ function ChatPageInner() {
     }
   }
 
+  async function approveListing() {
+    if (!itemId || approvingListing) return;
+    setApprovingListing(true);
+    try {
+      await api.approveListing(itemId);
+      setApprovalOpen(false);
+      setListingStatus((prev) => prev ? { ...prev, status: "publishing" } : prev);
+      setListingPending(true);
+      startPolling(itemId, false);
+      setToast({ message: "Listing approved. Publishing to eBay…", type: "success" });
+    } catch (err) {
+      setToast({ message: err instanceof Error ? err.message : "Approval failed", type: "error" });
+    } finally {
+      setApprovingListing(false);
+    }
+  }
+
   const showPricingPanel = pricingResult !== null || pricingPending;
   const showListingPanel = listingStatus !== null || listingPending;
 
@@ -347,7 +455,12 @@ function ChatPageInner() {
           {listingPending && !listingStatus ? (
             <Card><CardContent className="p-4"><Skeleton className="h-4 w-40" /></CardContent></Card>
           ) : null}
-          {listingStatus ? <ListingStatusPanel listing={listingStatus} /> : null}
+          {listingStatus ? (
+            <ListingStatusPanel
+              listing={listingStatus}
+              onReview={() => setApprovalOpen(true)}
+            />
+          ) : null}
         </div>
       )}
     </div>
@@ -356,6 +469,15 @@ function ChatPageInner() {
   return (
     <>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {approvalOpen && listingStatus?.status === "pending_approval" && (
+        <ListingApprovalPrompt
+          listing={listingStatus}
+          pricing={pricingResult}
+          approving={approvingListing}
+          onApprove={approveListing}
+          onClose={() => setApprovalOpen(false)}
+        />
+      )}
       <AppShell
         panel={panel}
         ebayConnected={ebayConnected}

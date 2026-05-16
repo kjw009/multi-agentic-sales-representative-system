@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from packages.agents.pricing.agent import run as run_pricing
 from packages.agents.publisher.agent import run as run_publisher
-from packages.db.models import Item, ItemStatus
+from packages.db.models import Item, ItemStatus, Listing, ListingStatus, Platform, Seller
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,35 @@ async def publisher_node(state: PipelineState, config: RunnableConfig) -> dict[s
 
     # Load the item to get the persisted min_acceptable_price
     item = await session.scalar(select(Item).where(Item.id == item_id, Item.seller_id == seller_id))
+    seller = await session.get(Seller, seller_id)
+    if item is None or seller is None:
+        return {"error": "Item or seller not found"}
+
+    existing_listing = await session.scalar(
+        select(Listing).where(
+            Listing.item_id == item_id,
+            Listing.seller_id == seller_id,
+            Listing.platform == Platform.ebay,
+        )
+    )
+
+    if seller.require_listing_approval and (
+        existing_listing is None
+        or existing_listing.status in {ListingStatus.pending_approval, ListingStatus.error}
+    ):
+        listing = existing_listing or Listing(
+            item_id=item_id,
+            seller_id=seller_id,
+            platform=Platform.ebay,
+        )
+        listing.status = ListingStatus.pending_approval
+        listing.posted_price = state.recommended_price
+        listing.close_reason = None
+        if existing_listing is None:
+            session.add(listing)
+        await session.commit()
+        return {"listing_status": ListingStatus.pending_approval.value, "listing_url": None}
+
     min_price = float(item.min_acceptable_price) if item and item.min_acceptable_price else 0.0
 
     pricing = PricingResult(

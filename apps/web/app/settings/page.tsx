@@ -225,6 +225,34 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
 
+              {/* Listing approval */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Listing approval</CardTitle>
+                  <CardDescription>
+                    Review priced listings before they go live on eBay.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border px-4 py-3 transition-colors hover:bg-accent/40">
+                    <input
+                      type="checkbox"
+                      checked={settings.require_listing_approval}
+                      onChange={(e) => update({ require_listing_approval: e.target.checked })}
+                      className="mt-0.5 accent-primary"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">
+                        Require approval before publishing listings
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        When enabled, priced listings pause in chat until you approve them.
+                      </span>
+                    </span>
+                  </label>
+                </CardContent>
+              </Card>
+
               {/* Reprice */}
               <Card>
                 <CardHeader>
