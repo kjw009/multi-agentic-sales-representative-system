@@ -412,13 +412,6 @@ Rules:
   Use eBay SEO best practices (no ALL CAPS, no special characters like *!~).
 - Description: 2-4 sentences. Lead with what the item is, then condition/cosmetic \
   notes, then what's included. Be factual and concise — no hype or filler.
-- Keep all copy eBay-policy-safe: do not include phone numbers, emails, URLs, \
-  social handles, WhatsApp, requests to contact/message/call/text the seller, \
-  off-platform transaction language, or payment phrases such as PayPal, bank \
-  transfer, cash on collection, or direct payment.
-- Avoid absolute guarantees like "works perfectly", "free from any damage", \
-  "100% authentic", or "guaranteed". Use cautious factual wording such as \
-  "tested and working" and "no visible damage noticed".
 - Output ONLY valid JSON: {"title": "...", "description": "..."}
 - Do NOT invent details the seller has not provided.\
 """
