@@ -111,34 +111,52 @@ phases:
           --query "Command.CommandId")
         echo "SSM command $CMD_ID dispatched"
 
-        # 120 × 15s = 30 min. The image installs torch/transformers/spaCy and
-        # pre-bakes HF models, so the first uncached build can take 10+ min.
-        for i in $(seq 1 120); do
+        print_invocation() {
+          echo "=== SSM STATUS DETAILS ==="
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --query "{Status:Status,ResponseCode:ResponseCode,StatusDetails:StatusDetails}" \
+            --output table || true
+          echo "=== STDOUT ==="
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --query "StandardOutputContent" --output text || true
+          echo "=== STDERR ==="
+          aws ssm get-command-invocation \
+            --region "$AWS_REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --query "StandardErrorContent" --output text || true
+        }
+
+        # 80 × 15s = 20 min. The image is built and pushed by CodeBuild; EC2
+        # should only pull, migrate, and restart.
+        LAST_STATUS=""
+        for i in $(seq 1 80); do
           STATUS=$(aws ssm get-command-invocation \
             --region "$AWS_REGION" \
             --command-id "$CMD_ID" \
             --instance-id "$EC2_INSTANCE_ID" \
             --query "Status" --output text 2>/dev/null || echo "Pending")
-          echo "[$i/120] $STATUS"
-          if [ "$STATUS" = "Success" ]; then exit 0; fi
-          if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ]; then
-            echo "=== STDOUT ==="
-            aws ssm get-command-invocation \
-              --region "$AWS_REGION" \
-              --command-id "$CMD_ID" \
-              --instance-id "$EC2_INSTANCE_ID" \
-              --query "StandardOutputContent" --output text
-            echo "=== STDERR ==="
-            aws ssm get-command-invocation \
-              --region "$AWS_REGION" \
-              --command-id "$CMD_ID" \
-              --instance-id "$EC2_INSTANCE_ID" \
-              --query "StandardErrorContent" --output text
-            exit 1
+          if [ "$STATUS" != "$LAST_STATUS" ]; then
+            echo "[$i/80] $STATUS"
+            LAST_STATUS="$STATUS"
           fi
+          if [ "$STATUS" = "Success" ]; then exit 0; fi
+          case "$STATUS" in
+            Failed|Cancelled|TimedOut|Cancelling|Undeliverable|Terminated|DeliveryTimedOut|ExecutionTimedOut)
+              print_invocation
+              exit 1
+              ;;
+          esac
           sleep 15
         done
         echo "Timed out waiting for deploy"
+        print_invocation
         exit 1
 
 cache:
