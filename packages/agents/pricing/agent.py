@@ -51,6 +51,7 @@ from packages.agents.pricing.comparable_filter import (
     extract_keywords_from_comparables,
     validate_comparables,
 )
+from packages.config import settings
 from packages.db.models import (
     ComparableListing as ComparableListingRow,
 )
@@ -786,6 +787,54 @@ def _blend_price(
     return 0.0
 
 
+def _compute_dynamic_floor(
+    comparable_std: float,
+    confidence: float,
+    recommended: float,
+    lambda_: float,
+) -> float | None:
+    """Return a formula-driven floor price, or None when data is insufficient.
+
+    Floor = recommended - (std * (1 - confidence) * lambda)
+    Equivalently: recommended * (1 - CV * (1 - confidence) * lambda)
+
+    Returns None when std or recommended is zero, signalling the caller to
+    fall back to _DEFAULT_FLOOR_RATIO. Result is clamped to [20 %, 99 %] of
+    recommended so extreme inputs cannot collapse the floor to zero.
+    """
+    if recommended <= 0 or comparable_std <= 0:
+        return None
+    raw = recommended - (comparable_std * (1.0 - confidence) * lambda_)
+    return float(max(recommended * 0.20, min(recommended * 0.99, raw)))
+
+
+def _compute_negotiating_posture(
+    comparable_std: float,
+    confidence: float,
+    recommended: float,
+    volatility_threshold: float,
+    confidence_threshold: float,
+) -> str:
+    """Map (volatility, confidence) to one of four negotiating posture labels.
+
+    High Volatility (std > volatility_threshold * recommended):
+      confidence >= confidence_threshold -> THE_SPECULATOR
+      confidence <  confidence_threshold -> THE_LIQUIDATOR
+    Low Volatility  (std <= volatility_threshold * recommended):
+      confidence >= confidence_threshold -> THE_COMMODITY_FIRM
+      confidence <  confidence_threshold -> THE_CAUTIOUS_MOVE
+    """
+    high_vol = comparable_std > volatility_threshold * recommended
+    high_conf = confidence >= confidence_threshold
+    if high_vol and high_conf:
+        return "THE_SPECULATOR"
+    if high_vol and not high_conf:
+        return "THE_LIQUIDATOR"
+    if not high_vol and high_conf:
+        return "THE_COMMODITY_FIRM"
+    return "THE_CAUTIOUS_MOVE"
+
+
 @traceable(name="pricing_agent", run_type="chain")
 async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -> PricingResult:
     """Agent 2 — Pricing (v3 model).
@@ -842,10 +891,28 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
     confidence_components = _calculate_pricing_confidence(row, validated, model_pred)
     confidence = confidence_components.final_confidence
 
-    floor = (
-        float(row.seller_floor_price)
-        if row.seller_floor_price
-        else recommended * _DEFAULT_FLOOR_RATIO
+    comparable_std = float(statistics.stdev(prices)) if len(prices) >= 2 else 0.0
+
+    formula_floor = _compute_dynamic_floor(
+        comparable_std=comparable_std,
+        confidence=confidence,
+        recommended=recommended,
+        lambda_=settings.pricing_risk_multiplier_lambda,
+    )
+
+    if row.seller_floor_price:
+        floor = max(float(row.seller_floor_price), formula_floor or 0.0)
+    elif formula_floor is not None:
+        floor = formula_floor
+    else:
+        floor = recommended * _DEFAULT_FLOOR_RATIO
+
+    posture = _compute_negotiating_posture(
+        comparable_std=comparable_std,
+        confidence=confidence,
+        recommended=recommended,
+        volatility_threshold=settings.pricing_volatility_threshold,
+        confidence_threshold=settings.pricing_confidence_threshold,
     )
 
     comparables = [
@@ -870,9 +937,14 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         price_low=round(price_low, 2),
         price_high=round(price_high, 2),
         comparables=comparables,
+        price_std_dev=round(comparable_std, 4),
+        negotiating_posture=posture,
     )
 
     # Phase 6.0 — persist prediction for the retraining loop
+    if model_features is not None:
+        model_features["_comparable_std"] = comparable_std
+        model_features["_negotiating_posture"] = posture
     await _persist_prediction(
         item=row,
         seller_id=seller_id,
