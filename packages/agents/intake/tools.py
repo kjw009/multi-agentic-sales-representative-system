@@ -10,6 +10,7 @@ operations.
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -17,7 +18,9 @@ import openai
 from langsmith import traceable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from packages.agents.intake import vision
 from packages.config import settings
 from packages.db.models import Item, ItemCondition, ItemStatus
 
@@ -334,6 +337,21 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "analyze_images_for_descriptors",
+            "description": (
+                "Analyze uploaded item photos to enrich a thin or generic listing with "
+                "visible descriptors and condition/defect details. Use this when photos "
+                "exist and seller-provided details are too vague, especially for visually "
+                "descriptive or unbranded items such as jewellery, clothing, shoes, watches, "
+                "furniture, bags, or collectibles. Do not use it to claim authenticity, "
+                "precious materials, gemstones, or brand unless visible markings prove them."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "record_item_specific",
             "description": (
                 "Record an eBay item-specific value the seller has supplied. Use ONLY "
@@ -560,6 +578,27 @@ async def execute_tool(
 
         await session.flush()
         return f"Saved item-specific {name} = {value!r}", item.id
+
+    if tool_name == "analyze_images_for_descriptors":
+        if not item_id:
+            return "Please tell me what item you're selling before uploading photos.", item_id
+        vision_item = await session.scalar(
+            select(Item).where(Item.id == item_id).options(selectinload(Item.images))
+        )
+        if not vision_item:
+            return "Error: item not found", item_id
+        images = list(getattr(vision_item, "images", []) or [])
+        if not images:
+            return (
+                "Please upload clear photos first so I can use them to improve the listing.",
+                vision_item.id,
+            )
+
+        report = await vision.analyse_item_images(vision_item, images)
+        vision.apply_visual_report_to_item(vision_item, report)
+        vision_item.visual_condition_analyzed_at = datetime.now(UTC)
+        await session.flush()
+        return vision.build_tool_summary(report), vision_item.id
 
     if tool_name == "generate_listing":
         raw_title = tool_input["raw_title"]

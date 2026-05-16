@@ -159,6 +159,45 @@ def _condition_ord(item: Item) -> int:
     return _CONDITION_MAP.get(item.condition, 2)
 
 
+def _visual_condition_context(item: Item) -> str:
+    """Compact vision-derived condition context for comparable search/filtering."""
+    report = item.visual_condition_report or {}
+    visual_attrs = (item.attributes or {}).get("visual_condition", {})
+    parts: list[str] = []
+
+    grade = report.get("condition_grade") or visual_attrs.get("condition_grade")
+    confidence = report.get("confidence", visual_attrs.get("confidence"))
+    if grade:
+        parts.append(f"vision grade: {grade}")
+    if confidence is not None:
+        parts.append(f"confidence: {confidence}")
+
+    defects = report.get("visible_defects") or visual_attrs.get("visible_defects") or []
+    defect_bits = []
+    for defect in defects[:4]:
+        if not isinstance(defect, dict):
+            continue
+        severity = defect.get("severity")
+        defect_type = defect.get("type")
+        location = defect.get("location")
+        bit = " ".join(str(v) for v in (severity, defect_type, location) if v)
+        if bit:
+            defect_bits.append(bit)
+    if defect_bits:
+        parts.append("visible defects: " + "; ".join(defect_bits))
+
+    for key, label in (
+        ("pricing_signals", "pricing signals"),
+        ("comparable_include_terms", "prefer comps with"),
+        ("comparable_exclude_terms", "avoid comps with"),
+    ):
+        values = report.get(key) or visual_attrs.get(key) or []
+        if values:
+            parts.append(f"{label}: {', '.join(str(v) for v in values[:8])}")
+
+    return ". ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Feature construction + model prediction
 # ---------------------------------------------------------------------------
@@ -325,6 +364,10 @@ async def _collect_comparables(
     """
     brand = (item.attributes or {}).get("brand") if item.attributes else None
     condition = str(item.condition) if item.condition else None
+    visual_context = _visual_condition_context(item)
+    search_description = item.description
+    if visual_context:
+        search_description = f"{item.description or ''}\nPhoto condition analysis: {visual_context}"
 
     # Resolve eBay category ID once — used across all rounds for category filtering
     category_id: str | None = None
@@ -369,7 +412,7 @@ async def _collect_comparables(
                 condition=search_condition,
                 limit=fetch_limit,
                 brand=brand,
-                description=item.description,
+                description=search_description,
                 query_override=query_override,
                 category_id=category_id,
             )
@@ -390,8 +433,9 @@ async def _collect_comparables(
             item_title=item.name or "",
             item_category=item.category or "",
             item_brand=brand,
-            item_description=item.description or "",
+            item_description=search_description or "",
             comparables=new_candidates,
+            visual_condition_context=visual_context or None,
         )
 
         kept.extend(valid)
@@ -531,6 +575,9 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
 
     # Get price prediction from historical ML model
     model_pred, model_features = _model_predict(row, prices)
+    visual_context = _visual_condition_context(row)
+    if model_features is not None and visual_context:
+        model_features["_context_visual_condition"] = visual_context
 
     # Blend the model prediction with the live comparable median, tapering the
     # median's weight when too few comparables were found to trust it.

@@ -23,6 +23,7 @@ from langsmith import traceable
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from packages.agents.intake.tools import (
     CATEGORY_ENRICHMENT_HINTS,
@@ -80,6 +81,13 @@ excellent listing. Questions should be relevant to the category:
 - Clothing/Shoes: size, colour, material, sole condition (shoes)?
 - Furniture: dimensions, material, colour?
 - General: cosmetic defects, included accessories, reason for selling?
+
+If photos are already uploaded and the seller's details are too generic, call \
+analyze_images_for_descriptors to enrich the listing from visible evidence. \
+This is especially useful for unbranded or visual items like jewellery, clothing, \
+shoes, watches, furniture, bags, and collectibles. Use cautious wording: do not \
+claim authenticity, precious metals, gemstones, or brand unless visible markings \
+prove them.
 
 Ask ONE question at a time. Keep it conversational and friendly. Aim up \
 to 6 questions total to gather all missing information and every enrinchment \
@@ -173,7 +181,9 @@ async def _plan_next_step(
     if item_id is None:
         return None, False, False
 
-    item = await session.scalar(select(Item).where(Item.id == item_id))
+    item = await session.scalar(
+        select(Item).where(Item.id == item_id).options(selectinload(Item.images))
+    )
     if item is None:
         return (
             "I couldn't find the item we were discussing. Please try that again.",
@@ -248,6 +258,8 @@ async def _plan_next_step(
         )
         or 0
     )
+    if not isinstance(image_count, int):
+        image_count = len(getattr(item, "images", []) or [])
 
     if image_count < _MIN_LISTING_IMAGES:
         if image_count == 0:
@@ -448,6 +460,9 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
                 terminal_reply = result_text
             elif tc.function.name == "generate_listing":
                 # Non-terminal: let the LLM present the result to the seller
+                pass
+            elif tc.function.name == "analyze_images_for_descriptors":
+                # Non-terminal: let the LLM use the visual summary in the next step.
                 pass
             elif tc.function.name == "mark_intake_complete":
                 terminal_reply = "Great — I have everything I need to prepare your listing!"

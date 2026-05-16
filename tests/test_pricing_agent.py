@@ -4,6 +4,8 @@ import pytest
 
 from packages.agents.pricing import agent
 from packages.agents.pricing.agent import _blend_price
+from packages.agents.pricing.comparable_filter import validate_comparables
+from packages.platform_adapters.ebay.browse import Comparable
 
 
 def test_get_sentence_model_missing_dependency_raises():
@@ -56,3 +58,50 @@ def test_blend_price_falls_back_to_a_single_available_signal():
     assert _blend_price(150.0, None, 3) == 150.0  # model unavailable
     assert _blend_price(None, 250.0, 3) == 250.0  # comparables unavailable
     assert _blend_price(None, None, 0) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_validate_comparables_includes_visual_condition_context(monkeypatch):
+    captured = {}
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class Msg:
+                content = '{"results":[{"index":1,"verdict":"keep"}]}'
+
+            class Choice:
+                message = Msg()
+
+            return type("Response", (), {"choices": [Choice()]})()
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr("packages.agents.pricing.comparable_filter.openai.AsyncOpenAI", FakeClient)
+
+    comp = Comparable(
+        title="Nike Air Max 90 Used Good Condition",
+        price=45.0,
+        currency="GBP",
+        condition="Used",
+        item_id="123",
+        listing_url="https://example.com/123",
+    )
+
+    kept, rejected = await validate_comparables(
+        item_title="Nike Air Max 90",
+        item_category="Trainers",
+        item_brand="Nike",
+        item_description="Nike trainers.",
+        comparables=[comp],
+        visual_condition_context="visible defects: minor sole wear. avoid comps with: new, sealed",
+    )
+
+    assert kept == [comp]
+    assert rejected == []
+    user_message = captured["messages"][1]["content"]
+    assert "Photo condition analysis" in user_message
+    assert "minor sole wear" in user_message

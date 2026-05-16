@@ -15,7 +15,7 @@ from packages.agents.intake.tools import (
     _generate_listing_text,
     execute_tool,
 )
-from packages.db.models import Item, ItemCondition
+from packages.db.models import Item, ItemCondition, ItemImage
 
 
 class _FakeCompletions:
@@ -59,6 +59,17 @@ class _FakeSession:
 
     def add(self, obj):
         self.added.append(obj)
+
+
+def _make_image(item_id: uuid.UUID, seller_id: uuid.UUID, position: int) -> ItemImage:
+    return ItemImage(
+        id=uuid.uuid4(),
+        item_id=item_id,
+        seller_id=seller_id,
+        s3_key=f"items/{position}.jpg",
+        url=f"https://example.com/{position}.jpg",
+        position=position,
+    )
 
 
 # ── Existing tests (updated for v2) ──────────────────────────────────────
@@ -182,6 +193,30 @@ async def test_plan_next_step_completes_once_minimum_images_uploaded():
 
 
 @pytest.mark.asyncio
+async def test_plan_next_step_does_not_call_vision_automatically(monkeypatch):
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Nike Air Max 90",
+        category="Trainers",
+        condition=ItemCondition.good,
+        description="Nike Air Max 90 trainers in good condition.",
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(_MIN_LISTING_IMAGES)]
+    session = _FakeSession(item=item, image_count=_MIN_LISTING_IMAGES)
+
+    analyse = AsyncMock()
+    monkeypatch.setattr("packages.agents.intake.tools.vision.analyse_item_images", analyse)
+
+    _reply, _needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert complete is True
+    analyse.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_intake_node_uses_local_planner_after_tool_execution(monkeypatch):
     tool_call = SimpleNamespace(
         id="call_1",
@@ -290,6 +325,77 @@ async def test_record_attribute_saves_brand():
 
     assert "Saved brand" in result_text
     assert item.brand == "Nike"
+
+
+@pytest.mark.asyncio
+async def test_analyze_images_for_descriptors_tool_stores_report(monkeypatch):
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Unbranded ring",
+        category="Jewellery",
+        condition=ItemCondition.good,
+        description="Unbranded ring.",
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(2)]
+    session = _FakeSession(item=item)
+    monkeypatch.setattr(
+        "packages.agents.intake.tools.vision.analyse_item_images",
+        AsyncMock(
+            return_value={
+                "condition_grade": "good",
+                "confidence": 0.8,
+                "visible_defects": [],
+                "visual_descriptors": [{"name": "metal colour", "value": "silver-tone"}],
+                "photo_quality": "clear",
+                "description_addendum": "Light surface wear is visible.",
+                "descriptor_addendum": "Silver-tone band with clear stones visible.",
+                "pricing_signals": ["silver_tone"],
+                "comparable_include_terms": ["silver-tone ring"],
+                "comparable_exclude_terms": ["gold ring"],
+            }
+        ),
+    )
+
+    result_text, _ = await execute_tool(
+        tool_name="analyze_images_for_descriptors",
+        tool_input={},
+        seller_id=seller_id,
+        item_id=item_id,
+        session=session,
+    )
+
+    assert "Visual analysis saved" in result_text
+    assert item.attributes["visual_descriptors"][0]["value"] == "silver-tone"
+    assert "Silver-tone band" in item.description
+
+
+@pytest.mark.asyncio
+async def test_analyze_images_for_descriptors_tool_requires_images():
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Unbranded ring",
+        category="Jewellery",
+        condition=ItemCondition.good,
+        description="Unbranded ring.",
+    )
+    item.images = []
+    session = _FakeSession(item=item)
+
+    result_text, _ = await execute_tool(
+        tool_name="analyze_images_for_descriptors",
+        tool_input={},
+        seller_id=seller_id,
+        item_id=item_id,
+        session=session,
+    )
+
+    assert "upload clear photos first" in result_text
 
 
 # ── New v2 tests — generate_listing tool ─────────────────────────────────
