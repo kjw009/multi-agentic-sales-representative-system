@@ -421,8 +421,7 @@ def _calculate_pricing_confidence(
     item_completeness = _item_completeness_score(item)
 
     confidence = (
-        avg_similarity * (0.6 * s_count + 0.4 * s_consistency) * 0.8
-        + item_completeness * 0.2
+        avg_similarity * (0.6 * s_count + 0.4 * s_consistency) * 0.8 + item_completeness * 0.2
     )
 
     return PricingConfidence(
