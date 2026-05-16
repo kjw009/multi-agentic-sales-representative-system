@@ -2,7 +2,7 @@ version: 0.2
 
 # Requires the CodeBuild project to have:
 #   - Environment: LINUX_EC2 (Docker works natively, no privileged mode needed)
-#   - Environment variables: AWS_REGION, EC2_INSTANCE_ID
+#   - Environment variables: AWS_REGION, EC2_INSTANCE_ID, ECR_REPOSITORY_URI
 #   - (Optional) S3 cache bucket configured to use the cache section below
 
 phases:
@@ -13,11 +13,26 @@ phases:
     commands:
       - pip install uv --quiet
       - uv sync --extra dev --no-group dev
-      - npm --prefix apps/web install
+      - npm --prefix apps/web ci
 
   pre_build:
     on-failure: ABORT
     commands:
+      - |
+        set -e
+        BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF:-}"
+        if [ -z "$BRANCH" ]; then
+          case "${CODEBUILD_WEBHOOK_TRIGGER:-}" in
+            branch/main) BRANCH="refs/heads/main" ;;
+          esac
+        fi
+        if [ -z "$BRANCH" ]; then
+          case "${CODEBUILD_SOURCE_VERSION:-}" in
+            main|refs/heads/main) BRANCH="refs/heads/main" ;;
+          esac
+        fi
+        echo "Branch is '${BRANCH:-unknown}'"
+        echo "export CI_BRANCH='$BRANCH'" > /tmp/ci-env
       # Lint & format
       - uv run ruff check .
       - uv run ruff format --check .
@@ -25,10 +40,15 @@ phases:
       - uv run mypy apps packages workers
       # Tests (all mock-based, no live DB needed)
       - JWT_SECRET_KEY=ci-test-secret uv run pytest tests/ --ignore=tests/evals/ --cov
-      # Run LangSmith Evaluations
-      - uv run pytest tests/evals/
-      # Validate Dockerfile builds (requires privileged mode)
-      - docker build .
+      # Run LangSmith evaluations only on main, before deployment.
+      - |
+        set -e
+        . /tmp/ci-env
+        if [ "$CI_BRANCH" = "refs/heads/main" ]; then
+          uv run pytest tests/evals/
+        else
+          echo "Skipping LangSmith evaluations on non-main branch"
+        fi
       # Frontend type check + build
       - npm --prefix apps/web run build
 
@@ -40,17 +60,37 @@ phases:
       # exit from one block does NOT skip the next.
       - |
         set -e
+        . /tmp/ci-env
 
         # Only deploy when merging/pushing to main.
-        BRANCH="${CODEBUILD_WEBHOOK_HEAD_REF:-}"
-        if [ "$BRANCH" != "refs/heads/main" ]; then
-          echo "Branch is '$BRANCH' — skipping deploy (main only)"
+        if [ "$CI_BRANCH" != "refs/heads/main" ]; then
+          echo "Branch is '$CI_BRANCH' — skipping image build and deploy (main only)"
           exit 0
         fi
 
+        : "${AWS_REGION:?AWS_REGION is required}"
+        : "${EC2_INSTANCE_ID:?EC2_INSTANCE_ID is required}"
+        : "${ECR_REPOSITORY_URI:?ECR_REPOSITORY_URI is required}"
+
+        IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:-latest}"
+        API_IMAGE="$ECR_REPOSITORY_URI:$IMAGE_TAG"
+        CACHE_IMAGE="$ECR_REPOSITORY_URI:buildcache"
+        ECR_REGISTRY="${ECR_REPOSITORY_URI%/*}"
+
+        aws ecr get-login-password --region "$AWS_REGION" \
+          | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+        docker buildx create --use --name salesrep-builder 2>/dev/null || docker buildx use salesrep-builder
+        docker buildx build \
+          --cache-from "type=registry,ref=$CACHE_IMAGE" \
+          --cache-to "type=registry,ref=$CACHE_IMAGE,mode=max" \
+          --tag "$API_IMAGE" \
+          --push \
+          .
+
         CMD_ID=$(aws ssm send-command \
-          --region $AWS_REGION \
-          --instance-ids $EC2_INSTANCE_ID \
+          --region "$AWS_REGION" \
+          --instance-ids "$EC2_INSTANCE_ID" \
           --document-name "AWS-RunShellScript" \
           --parameters '{"commands":[
             "set -e",
@@ -59,10 +99,13 @@ phases:
             "cd /home/ubuntu/multi-agentic-sales-representative-system",
             "git fetch origin",
             "git reset --hard origin/main",
+            "export API_IMAGE='"$API_IMAGE"'",
+            "export ECR_REGISTRY='"$ECR_REGISTRY"'",
             "sudo docker container prune -f",
-            "sudo docker compose build api sqs-worker",
-            "sudo docker compose run --rm api uv run alembic upgrade head",
-            "sudo docker compose up -d"
+            "aws ecr get-login-password --region '"$AWS_REGION"' | sudo docker login --username AWS --password-stdin $ECR_REGISTRY",
+            "sudo -E docker compose -f docker-compose.prod.yml --profile worker pull api sqs-worker",
+            "sudo -E docker compose -f docker-compose.prod.yml run --rm api uv run alembic upgrade head",
+            "sudo -E docker compose -f docker-compose.prod.yml --profile worker up -d"
           ]}' \
           --output text \
           --query "Command.CommandId")
@@ -72,24 +115,24 @@ phases:
         # pre-bakes HF models, so the first uncached build can take 10+ min.
         for i in $(seq 1 120); do
           STATUS=$(aws ssm get-command-invocation \
-            --region $AWS_REGION \
-            --command-id $CMD_ID \
-            --instance-id $EC2_INSTANCE_ID \
+            --region "$AWS_REGION" \
+            --command-id "$CMD_ID" \
+            --instance-id "$EC2_INSTANCE_ID" \
             --query "Status" --output text 2>/dev/null || echo "Pending")
           echo "[$i/120] $STATUS"
           if [ "$STATUS" = "Success" ]; then exit 0; fi
           if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ]; then
             echo "=== STDOUT ==="
             aws ssm get-command-invocation \
-              --region $AWS_REGION \
-              --command-id $CMD_ID \
-              --instance-id $EC2_INSTANCE_ID \
+              --region "$AWS_REGION" \
+              --command-id "$CMD_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
               --query "StandardOutputContent" --output text
             echo "=== STDERR ==="
             aws ssm get-command-invocation \
-              --region $AWS_REGION \
-              --command-id $CMD_ID \
-              --instance-id $EC2_INSTANCE_ID \
+              --region "$AWS_REGION" \
+              --command-id "$CMD_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
               --query "StandardErrorContent" --output text
             exit 1
           fi
@@ -102,5 +145,6 @@ cache:
   paths:
     - "/root/.cache/uv/**/*"
     - "/root/.cache/mypy/**/*"
+    - "/root/.npm/**/*"
     - "apps/web/node_modules/**/*"
     - "apps/web/.next/cache/**/*"
