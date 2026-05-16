@@ -56,6 +56,7 @@ export interface Comparable {
   condition: string;
   item_id: string;
   listing_url: string;
+  similarity_score?: number | null;
 }
 
 export interface PricingResult {
@@ -215,4 +216,3 @@ export const api = {
   createPortalSession: () =>
     request<{ url: string }>("/billing/portal-session", { method: "POST" }),
 };
-

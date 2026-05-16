@@ -21,6 +21,7 @@ class ComparableListing(BaseModel):
     # 'validated' means the LLM confirmed this is a match;
     # 'unfiltered' is used if the model skips the validation step.
     relevance: str = "validated"
+    similarity_score: float | None = None
 
 
 class PricingResult(BaseModel):

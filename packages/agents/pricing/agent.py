@@ -23,6 +23,7 @@ Comparable collection uses a multi-round adaptive strategy:
 import json
 import logging
 import os
+import re
 
 # Prevent segfault from OpenMP conflict between LightGBM and PyTorch (sentence_transformers).
 # Both ship their own libomp on macOS; LightGBM's predict crashes if a second OpenMP runtime
@@ -34,6 +35,7 @@ import pickle
 import statistics
 import uuid
 from collections import Counter
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from importlib.util import find_spec
 from pathlib import Path
@@ -142,6 +144,71 @@ _TARGET_COMPARABLES = 20  # Try to find 20 matching items on eBay
 _MIN_CONFIDENT_COMPARABLES = 6
 _MAX_SEARCH_ROUNDS = 3  # Rounds 0-1 use condition filter; round 2 drops it as fallback
 
+_CONFIDENCE_TARGET_COMPARABLES = 10
+_CONFIDENCE_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "boxed",
+    "condition",
+    "for",
+    "from",
+    "good",
+    "great",
+    "in",
+    "is",
+    "it",
+    "like",
+    "new",
+    "of",
+    "old",
+    "on",
+    "only",
+    "sale",
+    "seller",
+    "selling",
+    "the",
+    "this",
+    "to",
+    "used",
+    "very",
+    "with",
+}
+
+_CONFIDENCE_REJECT_TOKENS = {
+    "adapter for",
+    "bag",
+    "box no",
+    "box only",
+    "broken",
+    "cable for",
+    "case",
+    "charger for",
+    "cover",
+    "dock",
+    "empty box",
+    "for parts",
+    "holder",
+    "manual",
+    "mount",
+    "packaging only",
+    "parts only",
+    "pouch",
+    "privacy screen",
+    "repair",
+    "replacement",
+    "screen protector",
+    "shell",
+    "skin",
+    "sleeve",
+    "spare part",
+    "spares",
+    "stand",
+    "sticker",
+    "tempered glass",
+}
+
 # ---------------------------------------------------------------------------
 # Condition → v3 ordinal  (mirrors notebook CONDITION_ORDINAL)
 # ---------------------------------------------------------------------------
@@ -153,6 +220,16 @@ _CONDITION_MAP: dict[ItemCondition, int] = {
     ItemCondition.fair: 1,  # used
     ItemCondition.poor: 0,  # for_parts
 }
+
+
+@dataclass(frozen=True)
+class PricingConfidence:
+    count_score: float
+    average_similarity_score: float
+    price_consistency_score: float
+    item_completeness_score: float
+    final_confidence: float
+    comparable_similarity_scores: dict[str, float]
 
 
 def _condition_ord(item: Item) -> int:
@@ -196,6 +273,161 @@ def _visual_condition_context(item: Item) -> str:
             parts.append(f"{label}: {', '.join(str(v) for v in values[:8])}")
 
     return ". ".join(parts)
+
+
+def _tokenize_confidence_text(text: str | None) -> set[str]:
+    if not text:
+        return set()
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", text.lower())
+        if len(token) > 1 and token not in _CONFIDENCE_STOPWORDS
+    }
+
+
+def _condition_similarity(item: Item, comparable: Comparable) -> float:
+    item_condition = str(item.condition or "").lower()
+    comp_condition = (comparable.condition or "").lower()
+    if not item_condition or not comp_condition:
+        return 0.6
+    if item_condition in comp_condition:
+        return 1.0
+
+    comp_is_new = "new" in comp_condition and "used" not in comp_condition
+    comp_is_used = any(
+        token in comp_condition
+        for token in ("used", "pre-owned", "preowned", "refurbished", "seller refurbished")
+    )
+
+    if item_condition == "new":
+        return 0.2 if comp_is_used else 0.7
+    if item_condition in {"like_new", "good", "fair"}:
+        if comp_is_used:
+            return 0.8
+        if comp_is_new:
+            return 0.35
+    if item_condition == "poor":
+        return 0.9 if any(token in comp_condition for token in ("parts", "not working")) else 0.4
+
+    return 0.6
+
+
+def _comparable_similarity_score(item: Item, comparable: Comparable) -> float:
+    seller_title_tokens = _tokenize_confidence_text(item.name)
+    description_tokens = _tokenize_confidence_text(" ".join((item.description or "").split()[:60]))
+    category_tokens = _tokenize_confidence_text(item.category)
+    brand = (item.attributes or {}).get("brand", "") if item.attributes else ""
+    brand_tokens = _tokenize_confidence_text(str(brand))
+
+    comp_title_lower = (comparable.title or "").lower()
+    comp_tokens = _tokenize_confidence_text(f"{comparable.title} {comparable.condition}")
+
+    if seller_title_tokens:
+        title_overlap = len(seller_title_tokens & comp_tokens) / len(seller_title_tokens)
+    else:
+        title_overlap = 0.5
+
+    if description_tokens:
+        description_overlap = min(len(description_tokens & comp_tokens) / min(len(description_tokens), 8), 1.0)
+    else:
+        description_overlap = 0.7
+
+    high_signal_tokens = {
+        token
+        for token in seller_title_tokens | category_tokens | brand_tokens
+        if token in brand_tokens or any(char.isdigit() for char in token) or len(token) >= 4
+    }
+    if high_signal_tokens:
+        brand_model_score = len(high_signal_tokens & comp_tokens) / len(high_signal_tokens)
+    else:
+        brand_model_score = 0.7
+
+    reject_absence_score = (
+        0.0 if any(token in comp_title_lower for token in _CONFIDENCE_REJECT_TOKENS) else 1.0
+    )
+    condition_score = _condition_similarity(item, comparable)
+
+    score = (
+        0.40 * title_overlap
+        + 0.20 * brand_model_score
+        + 0.10 * description_overlap
+        + 0.20 * condition_score
+        + 0.10 * reject_absence_score
+    )
+    return max(0.0, min(score, 1.0))
+
+
+def _price_consistency_score(prices: list[float]) -> float:
+    if not prices:
+        return 0.0
+    if len(prices) == 1:
+        return 0.6
+
+    median = float(np.median(prices))
+    if median <= 0:
+        return 0.0
+
+    q1 = float(np.percentile(prices, 25))
+    q3 = float(np.percentile(prices, 75))
+    spread_ratio = max(q3 - q1, 0.0) / median
+    return max(0.0, min(1.0 - spread_ratio, 1.0))
+
+
+def _item_completeness_score(item: Item) -> float:
+    score = 0.0
+    if item.name and item.name.strip():
+        score += 0.20
+    if item.condition:
+        score += 0.15
+    if item.category and item.category.strip():
+        score += 0.15
+    if item.attributes and item.attributes.get("brand"):
+        score += 0.15
+    if item.description and len(item.description.split()) >= 8:
+        score += 0.20
+    if getattr(item, "images", None):
+        score += 0.15
+    return max(0.0, min(score, 1.0))
+
+
+def _calculate_pricing_confidence(
+    item: Item,
+    validated_comparables: list[Comparable],
+    model_pred: float | None,
+) -> PricingConfidence:
+    priced_comparables = [c for c in validated_comparables if c.price > 0]
+    prices = [c.price for c in priced_comparables]
+    count_score = min(len(prices) / _CONFIDENCE_TARGET_COMPARABLES, 1.0)
+    item_completeness = _item_completeness_score(item)
+
+    similarity_scores = {
+        c.item_id: round(_comparable_similarity_score(item, c), 4) for c in priced_comparables
+    }
+    average_similarity = (
+        float(sum(similarity_scores.values()) / len(similarity_scores)) if similarity_scores else 0.0
+    )
+    price_consistency = _price_consistency_score(prices)
+
+    if prices:
+        confidence = (
+            0.35 * count_score
+            + 0.35 * average_similarity
+            + 0.20 * price_consistency
+            + 0.10 * item_completeness
+        )
+    elif model_pred is not None:
+        confidence = min(0.25 * item_completeness, 0.30)
+    else:
+        confidence = 0.0
+
+    return PricingConfidence(
+        count_score=round(count_score, 4),
+        average_similarity_score=round(average_similarity, 4),
+        price_consistency_score=round(price_consistency, 4),
+        item_completeness_score=round(item_completeness, 4),
+        final_confidence=round(max(0.0, min(confidence, 1.0)), 4),
+        comparable_similarity_scores=similarity_scores,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +706,7 @@ async def _persist_prediction(
     result: "PricingResult",
     model_pred: float | None,
     model_features: dict[str, Any] | None,
+    confidence_components: PricingConfidence,
     comparable_median: float | None,
     validated_comparables: list[Any],
     session: AsyncSession,
@@ -481,11 +714,13 @@ async def _persist_prediction(
     """Write a PricePrediction row + ComparableListing rows for the retraining loop."""
     try:
         version_id = await get_active_model_version_id(session)
+        features = dict(model_features or {})
+        features["_confidence_components"] = asdict(confidence_components)
         prediction = PricePredictionRow(
             seller_id=seller_id,
             item_id=item.id,
             model_version_id=version_id,
-            features=model_features,
+            features=features,
             features_partial=(model_features is None),
             model_prediction=round(model_pred, 2) if model_pred is not None else None,
             comparable_median=round(comparable_median, 2)
@@ -499,6 +734,7 @@ async def _persist_prediction(
         await session.flush()  # get prediction.id without committing
 
         for c in validated_comparables:
+            similarity_score = confidence_components.comparable_similarity_scores.get(c.item_id)
             session.add(
                 ComparableListingRow(
                     price_prediction_id=prediction.id,
@@ -510,6 +746,7 @@ async def _persist_prediction(
                     condition=c.condition,
                     listing_url=c.listing_url,
                     relevance="validated",
+                    similarity_score=similarity_score,
                 )
             )
         # The caller (pipeline) commits the session; we just stage the rows.
@@ -596,12 +833,8 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         price_low = 0.0
         price_high = 0.0
 
-    if prices:
-        confidence = min(len(prices) / 10, 1.0)
-    elif model_pred is not None:
-        confidence = 0.3
-    else:
-        confidence = 0.0
+    confidence_components = _calculate_pricing_confidence(row, validated, model_pred)
+    confidence = confidence_components.final_confidence
 
     floor = (
         float(row.seller_floor_price)
@@ -618,6 +851,7 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
             item_id=c.item_id,
             listing_url=c.listing_url,
             relevance="validated",
+            similarity_score=confidence_components.comparable_similarity_scores.get(c.item_id),
         )
         for c in validated
     ]
@@ -639,6 +873,7 @@ async def run(item_id: uuid.UUID, seller_id: uuid.UUID, session: AsyncSession) -
         result=result,
         model_pred=model_pred,
         model_features=model_features,
+        confidence_components=confidence_components,
         comparable_median=comparable_median,
         validated_comparables=validated,
         session=session,
