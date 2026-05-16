@@ -39,9 +39,9 @@ _HIGH_MODEL = 200.0
 def test_blend_price_uses_model_dominant_curve_when_comparables_are_sufficient(n_comparables):
     """At or above the threshold the comparable signal follows the model-dominant curve."""
     comparable_weight = 0.4 * ((50 - n_comparables) / 44) ** 6.048
-    expected = comparable_weight * _LOW_MEDIAN + (
-        agent._MODEL_WEIGHT - comparable_weight
-    ) * _HIGH_MODEL
+    expected = (
+        comparable_weight * _LOW_MEDIAN + (agent._MODEL_WEIGHT - comparable_weight) * _HIGH_MODEL
+    )
     assert _blend_price(_LOW_MEDIAN, _HIGH_MODEL, n_comparables) == pytest.approx(expected)
 
 
@@ -50,9 +50,9 @@ def test_blend_price_tapers_comparable_weight_when_too_few_comparables():
     few = agent._MIN_CONFIDENT_COMPARABLES - 1
     comparable_weight = 0.4 * ((50 - few) / 44) ** 6.048
     comparable_weight *= few / agent._MIN_CONFIDENT_COMPARABLES
-    expected = comparable_weight * _LOW_MEDIAN + (
-        agent._MODEL_WEIGHT - comparable_weight
-    ) * _HIGH_MODEL
+    expected = (
+        comparable_weight * _LOW_MEDIAN + (agent._MODEL_WEIGHT - comparable_weight) * _HIGH_MODEL
+    )
 
     result = _blend_price(_LOW_MEDIAN, _HIGH_MODEL, few)
 
