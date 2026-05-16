@@ -640,26 +640,6 @@ class PublishResult:
     listing_url: str
 
 
-def _trading_api_error_messages(root: ET.Element) -> list[str]:
-    """Return actionable Trading API errors, excluding warning-only noise."""
-    ns = {"ebay": "urn:ebay:apis:eBLBaseComponents"}
-    errors = root.findall("ebay:Errors", namespaces=ns)
-    messages: list[tuple[str | None, str]] = []
-    for error in errors:
-        message = (
-            error.findtext("ebay:LongMessage", namespaces=ns)
-            or error.findtext("ebay:ShortMessage", namespaces=ns)
-            or ""
-        ).strip()
-        if not message:
-            continue
-        severity = error.findtext("ebay:SeverityCode", namespaces=ns)
-        messages.append((severity, message))
-
-    actionable = [message for severity, message in messages if severity != "Warning"]
-    return actionable or [message for _, message in messages]
-
-
 async def _publish_via_trading_api(
     item: Item,
     price: float,
@@ -761,9 +741,14 @@ async def _publish_via_trading_api(
 
     ack = root.findtext("ebay:Ack", namespaces=ns)
     if ack not in ("Success", "Warning"):
-        msgs = _trading_api_error_messages(root)
+        errors = root.findall("ebay:Errors", namespaces=ns)
+        msgs = [
+            e.findtext("ebay:LongMessage", namespaces=ns)
+            or e.findtext("ebay:ShortMessage", namespaces=ns)
+            for e in errors
+        ]
         raise RuntimeError(
-            f"Trading API AddFixedPriceItem failed: {'; '.join(msgs)}"
+            f"Trading API AddFixedPriceItem failed: {'; '.join(str(m) for m in msgs)}"
         )
 
     ebay_item_id = root.findtext("ebay:ItemID", namespaces=ns)
