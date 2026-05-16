@@ -152,21 +152,21 @@ function ListingStatusPanel({
       : "More info needed",
     ended: "Listing ended",
   };
-  const isPendingApproval = listing.status === "pending_approval";
+  const canReview = listing.status === "pending_approval" || listing.status === "error";
 
   return (
     <Card
-      role={isPendingApproval ? "button" : undefined}
-      tabIndex={isPendingApproval ? 0 : undefined}
-      onClick={isPendingApproval ? onReview : undefined}
+      role={canReview ? "button" : undefined}
+      tabIndex={canReview ? 0 : undefined}
+      onClick={canReview ? onReview : undefined}
       onKeyDown={(e) => {
-        if (!isPendingApproval) return;
+        if (!canReview) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onReview();
         }
       }}
-      className={isPendingApproval ? "cursor-pointer transition-colors hover:bg-accent/40" : undefined}
+      className={canReview ? "cursor-pointer transition-colors hover:bg-accent/40" : undefined}
     >
       <CardContent className="p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -180,8 +180,13 @@ function ListingStatusPanel({
             Listed at <span className="font-medium text-foreground">{fmt(listing.posted_price)}</span>
           </p>
         )}
-        {isPendingApproval && (
+        {listing.status === "pending_approval" && (
           <p className="text-xs text-muted-foreground">Click to review before publishing</p>
+        )}
+        {listing.status === "error" && (
+          <p className="text-xs text-muted-foreground">
+            {listing.close_reason || "Click to retry publishing"}
+          </p>
         )}
         {listing.url && (
           <a
@@ -219,7 +224,9 @@ function ListingApprovalPrompt({
             <div>
               <p className="text-base font-semibold">Review listing</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                This listing is ready to go live on eBay.
+                {listing.status === "error"
+                  ? "Publishing failed. Review the details and try again."
+                  : "This listing is ready to go live on eBay."}
               </p>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close review">
@@ -246,6 +253,11 @@ function ListingApprovalPrompt({
                 <span className="font-medium">{fmt(pricing.min_acceptable_price)}</span>
               </div>
             )}
+            {listing.status === "error" && listing.close_reason && (
+              <p className="border-t border-border pt-2 text-xs text-destructive">
+                {listing.close_reason}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -254,7 +266,7 @@ function ListingApprovalPrompt({
             </Button>
             <Button onClick={onApprove} disabled={approving}>
               <CheckCircle2 size={15} />
-              {approving ? "Publishing…" : "Approve & publish"}
+              {approving ? "Publishing…" : listing.status === "error" ? "Retry publish" : "Approve & publish"}
             </Button>
           </div>
         </CardContent>
@@ -469,7 +481,7 @@ function ChatPageInner() {
   return (
     <>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      {approvalOpen && listingStatus?.status === "pending_approval" && (
+      {approvalOpen && listingStatus && ["pending_approval", "error"].includes(listingStatus.status) && (
         <ListingApprovalPrompt
           listing={listingStatus}
           pricing={pricingResult}
