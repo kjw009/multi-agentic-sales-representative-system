@@ -367,7 +367,7 @@ def _price_consistency_score(prices: list[float]) -> float:
     Guaranteed no division-by-zero because callers filter for price > 0.
     """
     if len(prices) <= 1:
-        return 1.0
+        return 0.22
     price_mean = sum(prices) / len(prices)
     price_std_dev = statistics.stdev(prices)
     return max(0.0, 1.0 - (price_std_dev / price_mean))
