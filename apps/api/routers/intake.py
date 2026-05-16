@@ -222,7 +222,6 @@ async def get_listing_status(
         "url": listing.url,
         "external_id": listing.external_id,
         "posted_price": float(listing.posted_price) if listing.posted_price else None,
-        "close_reason": listing.close_reason,
     }
 
 

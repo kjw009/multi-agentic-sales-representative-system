@@ -79,7 +79,6 @@ export interface ListingStatus {
   url: string | null;
   external_id: string | null;
   posted_price: number | null;
-  close_reason?: string | null;
   required_specifics?: string[];
 }
 
