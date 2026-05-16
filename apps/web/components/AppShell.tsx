@@ -23,6 +23,10 @@ const NAV_ITEMS = [
   { href: "/settings", label: "Settings", Icon: Settings },
 ];
 
+function currentTitle(pathname: string) {
+  return NAV_ITEMS.find((item) => pathname === item.href || pathname.startsWith(item.href + "/"))?.label ?? "SalesRep";
+}
+
 export function AppShell({
   children,
   panel,
@@ -115,7 +119,7 @@ export function AppShell({
   );
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex h-dvh bg-background overflow-hidden">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
@@ -136,26 +140,31 @@ export function AppShell({
       </aside>
 
       {/* Main area */}
-      <div className="flex flex-1 min-w-0 overflow-hidden">
-        {/* Mobile hamburger */}
-        <button
-          className="absolute top-3 left-3 z-10 lg:hidden text-muted-foreground hover:text-foreground p-1"
-          onClick={() => setMobileOpen(true)}
-        >
-          <Menu size={20} />
-        </button>
+      <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 lg:hidden">
+          <button
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open navigation"
+          >
+            <Menu size={20} />
+          </button>
+          <p className="text-sm font-semibold">{currentTitle(pathname)}</p>
+        </header>
 
-        {/* Content */}
-        <main className="flex-1 min-w-0 overflow-y-auto">
-          {children}
-        </main>
+        <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+          {/* Content */}
+          <main className="flex-1 min-w-0 overflow-y-auto">
+            {children}
+          </main>
 
-        {/* Optional right panel */}
-        {panel && (
-          <aside className="w-80 shrink-0 bg-background border-l border-border p-5 overflow-y-auto hidden xl:block">
-            {panel}
-          </aside>
-        )}
+          {/* Optional right panel */}
+          {panel && (
+            <aside className="w-80 shrink-0 bg-background border-l border-border p-5 overflow-y-auto hidden xl:block">
+              {panel}
+            </aside>
+          )}
+        </div>
       </div>
     </div>
   );

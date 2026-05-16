@@ -34,7 +34,7 @@ function DraftItem({ draft, onRemove }: { draft: DraftMessage; onRemove: (id: st
   return (
     <Card>
       <CardContent className="p-5 space-y-4">
-        <div className="flex justify-between items-center text-sm">
+        <div className="flex flex-wrap justify-between gap-2 text-sm">
           <span className="font-semibold">{draft.buyer_handle}</span>
           <span className="text-muted-foreground text-xs">{formatRelativeTime(draft.received_at)}</span>
         </div>
@@ -58,12 +58,13 @@ function DraftItem({ draft, onRemove }: { draft: DraftMessage; onRemove: (id: st
 
         {err && <p className="text-destructive text-xs">{err}</p>}
 
-        <div className="flex items-center gap-2 justify-end">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
           <Button
             variant="ghost"
             size="sm"
             disabled={loading}
             onClick={() => act(() => api.dismissDraft(draft.message_id))}
+            className="w-full sm:w-auto"
           >
             Dismiss
           </Button>
@@ -72,6 +73,7 @@ function DraftItem({ draft, onRemove }: { draft: DraftMessage; onRemove: (id: st
               size="sm"
               disabled={loading || !text.trim()}
               onClick={() => act(() => api.editDraft(draft.message_id, text))}
+              className="w-full sm:w-auto"
             >
               Save &amp; Send
             </Button>
@@ -80,6 +82,7 @@ function DraftItem({ draft, onRemove }: { draft: DraftMessage; onRemove: (id: st
               size="sm"
               disabled={loading}
               onClick={() => act(() => api.approveDraft(draft.message_id))}
+              className="w-full sm:w-auto"
             >
               Approve
             </Button>
@@ -115,7 +118,7 @@ export default function InboxPage() {
 
   return (
     <AppShell inboxCount={drafts.length}>
-      <div className="px-4 sm:px-8 py-8">
+      <div className="px-4 py-6 sm:px-8 sm:py-8">
         <div className="max-w-2xl mx-auto space-y-6">
           <div className="pb-4 border-b border-border">
             <h1 className="text-xl font-semibold">Pending Approvals</h1>
