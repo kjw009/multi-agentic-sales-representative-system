@@ -80,9 +80,7 @@ async def test_validate_comparables_includes_visual_condition_context(monkeypatc
         def __init__(self, **kwargs):
             self.chat = type("Chat", (), {"completions": FakeCompletions()})()
 
-    monkeypatch.setattr(
-        "packages.agents.pricing.comparable_filter.openai.AsyncOpenAI", FakeClient
-    )
+    monkeypatch.setattr("packages.agents.pricing.comparable_filter.openai.AsyncOpenAI", FakeClient)
 
     comp = Comparable(
         title="Nike Air Max 90 Used Good Condition",

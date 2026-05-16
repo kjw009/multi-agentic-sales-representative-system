@@ -153,6 +153,8 @@ _CONDITION_MAP: dict[ItemCondition, int] = {
     ItemCondition.fair: 1,  # used
     ItemCondition.poor: 0,  # for_parts
 }
+
+
 def _condition_ord(item: Item) -> int:
     return _CONDITION_MAP.get(item.condition, 2)
 
