@@ -107,12 +107,14 @@ def test_confidence_is_high_for_many_similar_tightly_priced_comparables():
         for i in range(10)
     ]
 
-    confidence = _calculate_pricing_confidence(_item(), comparables, model_pred=305.0)
+    confidence = _calculate_pricing_confidence(_item(), comparables)
 
-    assert confidence.final_confidence >= 0.85
-    assert confidence.count_score == 1.0
+    # s_count = sqrt(10/20) ≈ 0.7071 — square-root curve, not linear
+    assert confidence.count_score == pytest.approx(0.7071, abs=1e-3)
     assert confidence.average_similarity_score >= 0.85
     assert confidence.price_consistency_score >= 0.95
+    # Multiplicative formula: avg_sim * (0.6*s_count + 0.4*s_consistency) * 0.8 + completeness*0.2
+    assert confidence.final_confidence >= 0.60
 
 
 def test_confidence_penalizes_many_low_similarity_comparables():
@@ -120,9 +122,9 @@ def test_confidence_penalizes_many_low_similarity_comparables():
         _comp(str(i), "Samsung Galaxy Tablet Case Cover Stand", 300 + (i % 3)) for i in range(10)
     ]
 
-    confidence = _calculate_pricing_confidence(_item(), comparables, model_pred=305.0)
+    confidence = _calculate_pricing_confidence(_item(), comparables)
 
-    assert confidence.count_score == 1.0
+    assert confidence.count_score == pytest.approx(0.7071, abs=1e-3)
     assert confidence.average_similarity_score < 0.45
     assert confidence.final_confidence < 0.75
 
@@ -133,10 +135,11 @@ def test_confidence_is_moderate_for_few_good_comparables():
         _comp("2", "Apple iPhone 13 128GB Black Unlocked Used", 310),
     ]
 
-    confidence = _calculate_pricing_confidence(_item(), comparables, model_pred=305.0)
+    confidence = _calculate_pricing_confidence(_item(), comparables)
 
+    # s_count = sqrt(2/20) ≈ 0.3162 under the square-root curve
+    assert confidence.count_score == pytest.approx(0.3162, abs=1e-3)
     assert 0.40 <= confidence.final_confidence <= 0.70
-    assert confidence.count_score == 0.2
 
 
 def test_confidence_penalizes_wide_price_spread():
@@ -149,28 +152,26 @@ def test_confidence_penalizes_wide_price_spread():
         for i, price in enumerate([120, 150, 180, 220, 300, 380, 520, 650, 760, 900])
     ]
 
-    tight_confidence = _calculate_pricing_confidence(_item(), tight, model_pred=305.0)
-    wide_confidence = _calculate_pricing_confidence(_item(), wide, model_pred=305.0)
+    tight_confidence = _calculate_pricing_confidence(_item(), tight)
+    wide_confidence = _calculate_pricing_confidence(_item(), wide)
 
     assert wide_confidence.price_consistency_score < tight_confidence.price_consistency_score
     assert wide_confidence.final_confidence < tight_confidence.final_confidence
 
 
-def test_model_only_confidence_is_low_and_uses_item_completeness():
-    complete = _calculate_pricing_confidence(_item(), [], model_pred=305.0)
+def test_no_comparables_confidence_reflects_item_completeness():
+    # With 0 comparables: similarity term collapses to 0, leaving only completeness*0.2
+    complete = _calculate_pricing_confidence(_item(), [])
     sparse = _calculate_pricing_confidence(
-        _item(description="", category="", attributes={}, images=[]), [], model_pred=305.0
+        _item(description="", category="", attributes={}, images=[]), []
     )
 
-    assert complete.final_confidence <= 0.30
+    # Complete item: completeness=1.0 → confidence=0.20
+    assert complete.final_confidence == pytest.approx(0.20, abs=1e-3)
+    # Sparse item: completeness=0.35 (name+condition only) → confidence=0.07
     assert complete.final_confidence > sparse.final_confidence
-
-
-def test_confidence_is_zero_without_comparables_or_model():
-    confidence = _calculate_pricing_confidence(_item(), [], model_pred=None)
-
-    assert confidence.final_confidence == 0.0
-    assert confidence.comparable_similarity_scores == {}
+    assert sparse.final_confidence < 0.15
+    assert complete.comparable_similarity_scores == {}
 
 
 def test_comparable_listing_schema_accepts_similarity_score():
