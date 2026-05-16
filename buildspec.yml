@@ -2,7 +2,8 @@ version: 0.2
 
 # Requires the CodeBuild project to have:
 #   - Environment: LINUX_EC2 (Docker works natively, no privileged mode needed)
-#   - Environment variables: AWS_REGION, EC2_INSTANCE_ID, ECR_REPOSITORY_URI
+#   - Environment variables: AWS_REGION, EC2_INSTANCE_ID
+#   - Optional environment variables: ECR_REPOSITORY_URI, ECR_REPOSITORY_NAME
 #   - (Optional) S3 cache bucket configured to use the cache section below
 
 phases:
@@ -70,7 +71,20 @@ phases:
 
         : "${AWS_REGION:?AWS_REGION is required}"
         : "${EC2_INSTANCE_ID:?EC2_INSTANCE_ID is required}"
-        : "${ECR_REPOSITORY_URI:?ECR_REPOSITORY_URI is required}"
+
+        if [ -z "${ECR_REPOSITORY_URI:-}" ]; then
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-salesrep-api}"
+          ECR_REPOSITORY_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY_NAME"
+          echo "ECR_REPOSITORY_URI not set; using $ECR_REPOSITORY_URI"
+        fi
+
+        aws ecr describe-repositories \
+          --region "$AWS_REGION" \
+          --repository-names "${ECR_REPOSITORY_URI##*/}" >/dev/null 2>&1 \
+          || aws ecr create-repository \
+            --region "$AWS_REGION" \
+            --repository-name "${ECR_REPOSITORY_URI##*/}" >/dev/null
 
         IMAGE_TAG="${CODEBUILD_RESOLVED_SOURCE_VERSION:-latest}"
         API_IMAGE="$ECR_REPOSITORY_URI:$IMAGE_TAG"
