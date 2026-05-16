@@ -1047,6 +1047,7 @@ class ComparableListing(Base):
     condition: Mapped[str | None] = mapped_column(Text)
     listing_url: Mapped[str | None] = mapped_column(Text)
     relevance: Mapped[str | None] = mapped_column(Text)
+    similarity_score: Mapped[float | None] = mapped_column(Numeric(5, 4))
     captured_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
