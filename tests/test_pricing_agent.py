@@ -106,8 +106,7 @@ def test_confidence_is_high_for_many_similar_tightly_priced_comparables():
 
 def test_confidence_penalizes_many_low_similarity_comparables():
     comparables = [
-        _comp(str(i), "Samsung Galaxy Tablet Case Cover Stand", 300 + (i % 3))
-        for i in range(10)
+        _comp(str(i), "Samsung Galaxy Tablet Case Cover Stand", 300 + (i % 3)) for i in range(10)
     ]
 
     confidence = _calculate_pricing_confidence(_item(), comparables, model_pred=305.0)

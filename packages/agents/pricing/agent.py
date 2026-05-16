@@ -328,7 +328,9 @@ def _comparable_similarity_score(item: Item, comparable: Comparable) -> float:
         title_overlap = 0.5
 
     if description_tokens:
-        description_overlap = min(len(description_tokens & comp_tokens) / min(len(description_tokens), 8), 1.0)
+        description_overlap = min(
+            len(description_tokens & comp_tokens) / min(len(description_tokens), 8), 1.0
+        )
     else:
         description_overlap = 0.7
 
@@ -404,7 +406,9 @@ def _calculate_pricing_confidence(
         c.item_id: round(_comparable_similarity_score(item, c), 4) for c in priced_comparables
     }
     average_similarity = (
-        float(sum(similarity_scores.values()) / len(similarity_scores)) if similarity_scores else 0.0
+        float(sum(similarity_scores.values()) / len(similarity_scores))
+        if similarity_scores
+        else 0.0
     )
     price_consistency = _price_consistency_score(prices)
 
