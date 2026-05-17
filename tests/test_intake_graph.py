@@ -343,7 +343,9 @@ async def test_plan_next_step_calls_vision_automatically(monkeypatch):
     }
     analyse = AsyncMock(return_value=fake_report)
     monkeypatch.setattr("packages.agents.intake.graph.vision.analyse_item_images", analyse)
-    monkeypatch.setattr("packages.agents.intake.graph.vision.apply_visual_report_to_item", lambda *_: None)
+    monkeypatch.setattr(
+        "packages.agents.intake.graph.vision.apply_visual_report_to_item", lambda *_: None
+    )
 
     _reply, _needs_image, complete = await _plan_next_step(session, item.id)
 
