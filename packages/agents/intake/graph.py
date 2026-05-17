@@ -376,14 +376,14 @@ async def call_model(state: IntakeState, config: RunnableConfig) -> dict[str, An
 
     if not msg.tool_calls:
         return {
-            "messages": state.messages + [{"role": "assistant", "content": msg.content or ""}],
+            "messages": [*state.messages, {"role": "assistant", "content": msg.content or ""}],
             "reply": msg.content or "How can I help you today?",
             "iterations": new_iterations,
         }
 
     return {
-        "messages": state.messages
-        + [
+        "messages": [
+            *state.messages,
             {
                 "role": "assistant",
                 "content": msg.content,
@@ -398,7 +398,7 @@ async def call_model(state: IntakeState, config: RunnableConfig) -> dict[str, An
                     }
                     for tc in msg.tool_calls
                 ],
-            }
+            },
         ],
         "iterations": new_iterations,
     }
