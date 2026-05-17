@@ -111,7 +111,6 @@ ITEM DETAILS:
 - Description: {item_description}
 - Condition: {item_condition}
 - Listed Price: £{listed_price:.2f}
-- Category: {item_category}
 
 CONVERSATION CONTEXT:
 {conversation_history}
@@ -280,7 +279,6 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
         item_description=(item.description or "No description")[:500] if item else "N/A",
         item_condition=str(item.condition) if item else "N/A",
         listed_price=listed_price,
-        item_category=item.category if item else "N/A",
         conversation_history=conversation_history or "(No previous messages)",
         intent=nlp_result.intent,
         intent_confidence=nlp_result.intent_confidence,
