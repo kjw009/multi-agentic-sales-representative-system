@@ -81,6 +81,6 @@ async def run(
         config={"configurable": {"session": session}},
     )
 
-    # Extract and convert the updated item ID
     updated_item_id = uuid.UUID(state["item_id"]) if state["item_id"] else None
-    return state["reply"], updated_item_id, state["needs_image"], state["complete"]
+    reply = state["reply"] or "Could you tell me a little more about the item?"
+    return reply, updated_item_id, state["needs_image"], state["complete"]

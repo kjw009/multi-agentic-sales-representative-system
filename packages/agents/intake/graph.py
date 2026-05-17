@@ -9,6 +9,10 @@ v2 changes:
 - Enrichment-first questioning (probes for specs/details, not "write a description")
 - AI-generated listing title & description via generate_listing tool
 - Seller approval step before marking intake complete
+
+Graph structure (ReAct loop):
+  call_model → run_tools → call_model (loop)
+             ↘ END         ↘ END (terminal tool / guardrail / max iterations)
 """
 
 import json
@@ -38,6 +42,7 @@ from packages.db.models import Item, ItemCondition, ItemImage, ItemStatus
 logger = logging.getLogger(__name__)
 
 _CATEGORIES_STR = ", ".join(CATEGORY_LIST)
+_MAX_ITERATIONS = 10
 
 # Minimum number of photos required before intake is allowed to complete.
 # A strong eBay listing needs several angles (exterior, wear/marks, accessories),
@@ -144,15 +149,16 @@ def _enrichment_context(category: str) -> str:
 class IntakeState(BaseModel):
     """
     The 'Memory' of the conversation.
-    LangGraph persists this between messages so the AI doesn't 'forget' the item_id.
+    LangGraph persists this between nodes so state flows through the ReAct graph.
     """
 
     seller_id: str
-    item_id: str | None
-    messages: list[dict[str, Any]]
-    reply: str
-    complete: bool
-    needs_image: bool
+    item_id: str | None = None
+    messages: list[dict[str, Any]] = []
+    reply: str = ""
+    complete: bool = False
+    needs_image: bool = False
+    iterations: int = 0
 
 
 def _missing_fields(item: Item) -> list[str]:
@@ -313,26 +319,16 @@ async def _enqueue_publish_only(seller_id: uuid.UUID, item_id: uuid.UUID) -> Non
     task.add_done_callback(_BACKGROUND_TASKS.discard)
 
 
-@traceable(name="intake_node", run_type="chain")
-async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, Any]:
-    """
-    Main node function for the intake graph.
+@traceable(name="intake_call_model", run_type="chain")
+async def call_model(state: IntakeState, config: RunnableConfig) -> dict[str, Any]:
+    """Call the LLM once and append its response to messages.
 
-    Processes the conversation state by calling OpenAI with tools, executing tool calls,
-    and updating the state until a terminal response is reached or max iterations hit.
-
-    The main execution loop.
-    1. Feeds context to the LLM.
-    2. Executes any tools the LLM chooses to 'call'.
-    3. Returns the final reply.
+    If the model returns text with no tool calls, sets state.reply and the
+    graph routes to END. If it returns tool calls, the graph routes to run_tools.
     """
-    if isinstance(state, dict):
-        state = IntakeState(**state)
-    session = config["configurable"]["session"]
-    seller_id = uuid.UUID(state.seller_id)
+    session: AsyncSession = config["configurable"]["session"]
     item_id = uuid.UUID(state.item_id) if state.item_id else None
 
-    # Build system message — include enrichment hints if we know the category
     system_content = SYSTEM_PROMPT
     if item_id:
         item = await session.scalar(select(Item).where(Item.id == item_id))
@@ -356,36 +352,39 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url or None,
     )
-    reply = ""
-    complete = False
-    needs_image = False
 
-    # Main loop - ask the LLM, execute tools, repeat up to 10 times
-    for _ in range(10):
-        try:
-            response = await client.chat.completions.create(  # type: ignore[call-overload]
-                model=settings.model_agent1,
-                messages=messages,
-                tools=TOOL_DEFINITIONS,
-                tool_choice="auto",
-                temperature=0.3,
-            )
-        except Exception:
-            logger.exception("Intake model call failed")
-            reply = (
+    try:
+        response = await client.chat.completions.create(  # type: ignore[call-overload]
+            model=settings.model_agent1,
+            messages=messages,
+            tools=TOOL_DEFINITIONS,
+            tool_choice="auto",
+            temperature=0.3,
+        )
+    except Exception:
+        logger.exception("Intake model call failed")
+        return {
+            "reply": (
                 "I hit a temporary problem while processing that. "
                 "Please send that again and we'll continue."
-            )
-            break
+            ),
+            "iterations": state.iterations + 1,
+        }
 
-        msg = response.choices[0].message
+    msg = response.choices[0].message
+    new_iterations = state.iterations + 1
 
-        if not msg.tool_calls:
-            reply = msg.content or "How can I help you today?"
-            break
+    if not msg.tool_calls:
+        return {
+            "messages": state.messages + [
+                {"role": "assistant", "content": msg.content or ""}
+            ],
+            "reply": msg.content or "How can I help you today?",
+            "iterations": new_iterations,
+        }
 
-        # Add the assistant's response to the conversation history
-        messages.append(
+    return {
+        "messages": state.messages + [
             {
                 "role": "assistant",
                 "content": msg.content,
@@ -401,105 +400,131 @@ async def intake_node(state: IntakeState, config: RunnableConfig) -> dict[str, A
                     for tc in msg.tool_calls
                 ],
             }
-        )
-
-        terminal_reply: str | None = None
-
-        for tc in msg.tool_calls:
-            try:
-                tool_input = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Intake tool arguments were not valid JSON",
-                    extra={
-                        "tool_name": tc.function.name,
-                        "tool_arguments": tc.function.arguments,
-                    },
-                )
-                reply = (
-                    "I had trouble understanding that detail. "
-                    "Could you rephrase it in one short sentence?"
-                )
-                terminal_reply = reply
-                break
-
-            # Execute the tool and handle any errors
-            try:
-                result_text, item_id = await execute_tool(
-                    tool_name=tc.function.name,
-                    tool_input=tool_input,
-                    seller_id=seller_id,
-                    item_id=item_id,
-                    session=session,
-                )
-            except Exception:
-                logger.exception(
-                    "Intake tool execution failed",
-                    extra={"tool_name": tc.function.name},
-                )
-                reply = (
-                    "I hit a temporary problem saving that. "
-                    "Please send it once more and I'll continue from here."
-                )
-                terminal_reply = reply
-                break
-
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result_text,
-                }
-            )
-
-            # Check for terminal tool calls that end the conversation turn
-            if tc.function.name == "request_image":
-                terminal_reply = result_text
-                needs_image = True
-            elif tc.function.name == "ask_user_question":
-                terminal_reply = result_text
-            elif tc.function.name == "generate_listing":
-                # Non-terminal: let the LLM present the result to the seller
-                pass
-            elif tc.function.name == "analyze_images_for_descriptors":
-                # Non-terminal: let the LLM use the visual summary in the next step.
-                pass
-            elif tc.function.name == "mark_intake_complete":
-                terminal_reply = "Great — I have everything I need to prepare your listing!"
-                complete = True
-
-        if terminal_reply is not None:
-            reply = terminal_reply
-            break
-
-        # Ask the LLM what to do next by checking for missing fields
-        planned_reply, planned_needs_image, planned_complete = await _plan_next_step(
-            session, item_id
-        )
-        if planned_reply is not None:
-            reply = planned_reply
-            needs_image = planned_needs_image
-            complete = planned_complete
-            break
-
-    if not reply:
-        reply = "Could you tell me a little more about the item?"
-
-    state_messages = [m for m in messages if m.get("role") != "system"]
-
-    return {
-        "item_id": str(item_id) if item_id else None,
-        "messages": state_messages,
-        "reply": reply,
-        "complete": complete,
-        "needs_image": needs_image,
+        ],
+        "iterations": new_iterations,
     }
 
 
-# This is the main graph builder which defines the entry point and the end point
-# and adds the nodes to the graph - there is only one node in this case.
+@traceable(name="intake_run_tools", run_type="chain")
+async def run_tools(state: IntakeState, config: RunnableConfig) -> dict[str, Any]:
+    """Execute tool calls from the last assistant message.
+
+    Handles terminal tools (request_image, mark_intake_complete, ask_user_question)
+    by setting state.reply, which causes the graph to route to END. Non-terminal
+    tools (generate_listing, analyze_images_for_descriptors) let the loop continue.
+    Runs _plan_next_step guardrail after all tools execute.
+    """
+    session: AsyncSession = config["configurable"]["session"]
+    seller_id = uuid.UUID(state.seller_id)
+    item_id = uuid.UUID(state.item_id) if state.item_id else None
+
+    last_msg = state.messages[-1]
+    tool_calls = last_msg.get("tool_calls", [])
+    new_messages = list(state.messages)
+
+    for tc in tool_calls:
+        try:
+            tool_input = json.loads(tc["function"]["arguments"] or "{}")
+        except json.JSONDecodeError:
+            logger.warning(
+                "Intake tool arguments were not valid JSON",
+                extra={
+                    "tool_name": tc["function"]["name"],
+                    "tool_arguments": tc["function"]["arguments"],
+                },
+            )
+            return {
+                "messages": new_messages,
+                "reply": (
+                    "I had trouble understanding that detail. "
+                    "Could you rephrase it in one short sentence?"
+                ),
+            }
+
+        try:
+            result_text, item_id = await execute_tool(
+                tool_name=tc["function"]["name"],
+                tool_input=tool_input,
+                seller_id=seller_id,
+                item_id=item_id,
+                session=session,
+            )
+        except Exception:
+            logger.exception(
+                "Intake tool execution failed",
+                extra={"tool_name": tc["function"]["name"]},
+            )
+            return {
+                "messages": new_messages,
+                "reply": (
+                    "I hit a temporary problem saving that. "
+                    "Please send it once more and I'll continue from here."
+                ),
+            }
+
+        new_messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": result_text,
+            }
+        )
+
+        tool_name = tc["function"]["name"]
+        if tool_name == "request_image":
+            return {
+                "messages": new_messages,
+                "reply": result_text,
+                "needs_image": True,
+                "item_id": str(item_id) if item_id else state.item_id,
+            }
+        if tool_name == "ask_user_question":
+            return {
+                "messages": new_messages,
+                "reply": result_text,
+                "item_id": str(item_id) if item_id else state.item_id,
+            }
+        if tool_name == "mark_intake_complete":
+            return {
+                "messages": new_messages,
+                "reply": "Great — I have everything I need to prepare your listing!",
+                "complete": True,
+                "item_id": str(item_id) if item_id else state.item_id,
+            }
+        # generate_listing and analyze_images_for_descriptors are non-terminal
+
+    # No terminal tool fired — check guardrail before looping back
+    planned_reply, planned_needs_image, planned_complete = await _plan_next_step(
+        session, item_id
+    )
+    result: dict[str, Any] = {
+        "messages": new_messages,
+        "item_id": str(item_id) if item_id else state.item_id,
+    }
+    if planned_reply is not None:
+        result["reply"] = planned_reply
+        result["needs_image"] = planned_needs_image
+        result["complete"] = planned_complete
+    return result
+
+
+def _route_after_model(state: IntakeState) -> str:
+    last_msg = state.messages[-1] if state.messages else {}
+    if last_msg.get("tool_calls"):
+        return "run_tools"
+    return END
+
+
+def _route_after_tools(state: IntakeState) -> str:
+    if state.reply or state.iterations >= _MAX_ITERATIONS:
+        return END
+    return "call_model"
+
+
 _builder: StateGraph[IntakeState] = StateGraph(IntakeState)
-_builder.add_node("intake", intake_node)
-_builder.set_entry_point("intake")
-_builder.add_edge("intake", END)
+_builder.add_node("call_model", call_model)
+_builder.add_node("run_tools", run_tools)
+_builder.set_entry_point("call_model")
+_builder.add_conditional_edges("call_model", _route_after_model)
+_builder.add_conditional_edges("run_tools", _route_after_tools)
 graph = _builder.compile()

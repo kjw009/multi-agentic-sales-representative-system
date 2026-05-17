@@ -8,7 +8,10 @@ import pytest
 from packages.agents.intake.graph import (
     _MIN_LISTING_IMAGES,
     _plan_next_step,
-    intake_node,
+    call_model,
+    run_tools,
+    IntakeState,
+    graph,
 )
 from packages.agents.intake.tools import (
     CATEGORY_LIST,
@@ -72,63 +75,182 @@ def _make_image(item_id: uuid.UUID, seller_id: uuid.UUID, position: int) -> Item
     )
 
 
-# ── Existing tests (updated for v2) ──────────────────────────────────────
+# ── call_model node tests ─────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_intake_node_handles_invalid_tool_json(monkeypatch):
-    tool_call = SimpleNamespace(
-        id="call_1",
-        function=SimpleNamespace(name="ask_user_question", arguments="{not-json"),
-    )
-    response = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tool_call]))]
-    )
-
-    monkeypatch.setattr(
-        "packages.agents.intake.graph.openai.AsyncOpenAI",
-        lambda **kwargs: _FakeClient(response=response),
-    )
-
-    state = await intake_node(
-        {
-            "seller_id": "00000000-0000-0000-0000-000000000001",
-            "item_id": None,
-            "messages": [{"role": "user", "content": "blue nike trainers"}],
-            "reply": "",
-            "complete": False,
-            "needs_image": False,
-        },
-        config={"configurable": {"session": _FakeSession()}},
-    )
-
-    assert "trouble understanding" in state["reply"]
-    assert state["complete"] is False
-    assert state["needs_image"] is False
-
-
-@pytest.mark.asyncio
-async def test_intake_node_handles_model_failure(monkeypatch):
+async def test_call_model_handles_model_failure(monkeypatch):
     monkeypatch.setattr(
         "packages.agents.intake.graph.openai.AsyncOpenAI",
         lambda **kwargs: _FakeClient(error=RuntimeError("boom")),
     )
 
-    state = await intake_node(
-        {
-            "seller_id": "00000000-0000-0000-0000-000000000001",
-            "item_id": None,
-            "messages": [{"role": "user", "content": "blue nike trainers"}],
-            "reply": "",
-            "complete": False,
-            "needs_image": False,
-        },
+    result = await call_model(
+        IntakeState(
+            seller_id="00000000-0000-0000-0000-000000000001",
+            messages=[{"role": "user", "content": "blue nike trainers"}],
+        ),
         config={"configurable": {"session": _FakeSession()}},
     )
 
-    assert "temporary problem" in state["reply"]
+    assert "temporary problem" in result["reply"]
+    assert result.get("complete", False) is False
+    assert result.get("needs_image", False) is False
+
+
+# ── run_tools node tests ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_tools_handles_invalid_tool_json():
+    state = IntakeState(
+        seller_id="00000000-0000-0000-0000-000000000001",
+        messages=[
+            {"role": "user", "content": "blue nike trainers"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "ask_user_question", "arguments": "{not-json"},
+                    }
+                ],
+            },
+        ],
+        iterations=1,
+    )
+
+    result = await run_tools(
+        state,
+        config={"configurable": {"session": _FakeSession()}},
+    )
+
+    assert "trouble understanding" in result["reply"]
+    assert result.get("complete", False) is False
+    assert result.get("needs_image", False) is False
+
+
+@pytest.mark.asyncio
+async def test_run_tools_uses_local_planner_after_tool_execution(monkeypatch):
+    state = IntakeState(
+        seller_id="00000000-0000-0000-0000-000000000001",
+        messages=[
+            {"role": "user", "content": "MacBook Air"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "record_attribute",
+                            "arguments": '{"field":"name","value":"Apple MacBook Air 13"}',
+                        },
+                    }
+                ],
+            },
+        ],
+        iterations=1,
+    )
+
+    async def fake_execute_tool(**kwargs):
+        return "Saved name", uuid.uuid4()
+
+    async def fake_plan_next_step(session, item_id):
+        return "Please upload clear photos of the item.", True, False
+
+    monkeypatch.setattr("packages.agents.intake.graph.execute_tool", fake_execute_tool)
+    monkeypatch.setattr("packages.agents.intake.graph._plan_next_step", fake_plan_next_step)
+
+    result = await run_tools(state, config={"configurable": {"session": _FakeSession()}})
+
+    assert result["reply"] == "Please upload clear photos of the item."
+    assert result["needs_image"] is True
+    assert result.get("complete", False) is False
+
+
+# ── Full-graph tests ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_intake_graph_does_not_terminate_on_generate_listing(monkeypatch):
+    """After generate_listing, the LLM should get another turn to present the result."""
+    gen_tool_call = SimpleNamespace(
+        id="call_gen",
+        function=SimpleNamespace(
+            name="generate_listing",
+            arguments=json.dumps(
+                {
+                    "raw_title": "nike trainers",
+                    "details": "Brand: Nike, Size: 10",
+                    "category": "Trainers",
+                }
+            ),
+        ),
+    )
+    response_with_tool = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[gen_tool_call]))]
+    )
+
+    response_text = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content="Here's the listing I've created:\n\n"
+                    "**Title:** Nike Air Max 90 Trainers UK 10\n\n"
+                    "Does this look good?",
+                    tool_calls=None,
+                )
+            )
+        ]
+    )
+
+    completions = _FakeCompletions(responses=[response_with_tool, response_text])
+
+    monkeypatch.setattr(
+        "packages.agents.intake.graph.openai.AsyncOpenAI",
+        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=completions)),
+    )
+
+    fixed_item_id = uuid.uuid4()
+
+    async def fake_execute_tool(**kwargs):
+        return (
+            "Generated listing:\n\n**Title:** Nike Air Max 90 Trainers UK 10\n\n"
+            "**Description:** Good condition.",
+            fixed_item_id,
+        )
+
+    async def fake_plan_next_step(session, item_id):
+        return None, False, False
+
+    monkeypatch.setattr("packages.agents.intake.graph.execute_tool", fake_execute_tool)
+    monkeypatch.setattr("packages.agents.intake.graph._plan_next_step", fake_plan_next_step)
+
+    state = await graph.ainvoke(
+        IntakeState(
+            seller_id="00000000-0000-0000-0000-000000000001",
+            item_id=str(uuid.uuid4()),
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Nike Air Max 90 trainers size 10",
+                }
+            ],
+        ),
+        config={"configurable": {"session": _FakeSession()}},
+    )
+
+    # LLM called twice: once for the tool, once for the presentation
+    assert completions.calls == 2
+    assert "listing" in state["reply"].lower() or "Nike" in state["reply"]
     assert state["complete"] is False
-    assert state["needs_image"] is False
+
+
+# ── _plan_next_step tests ─────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -216,54 +338,7 @@ async def test_plan_next_step_does_not_call_vision_automatically(monkeypatch):
     analyse.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_intake_node_uses_local_planner_after_tool_execution(monkeypatch):
-    tool_call = SimpleNamespace(
-        id="call_1",
-        function=SimpleNamespace(
-            name="record_attribute",
-            arguments='{"field":"name","value":"Apple MacBook Air 13"}',
-        ),
-    )
-    completions = _FakeCompletions(
-        response=SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tool_call]))]
-        )
-    )
-
-    monkeypatch.setattr(
-        "packages.agents.intake.graph.openai.AsyncOpenAI",
-        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=completions)),
-    )
-
-    async def fake_execute_tool(**kwargs):
-        return "Saved name", uuid.uuid4()
-
-    async def fake_plan_next_step(session, item_id):
-        return "Please upload clear photos of the item.", True, False
-
-    monkeypatch.setattr("packages.agents.intake.graph.execute_tool", fake_execute_tool)
-    monkeypatch.setattr("packages.agents.intake.graph._plan_next_step", fake_plan_next_step)
-
-    state = await intake_node(
-        {
-            "seller_id": "00000000-0000-0000-0000-000000000001",
-            "item_id": None,
-            "messages": [{"role": "user", "content": "MacBook Air"}],
-            "reply": "",
-            "complete": False,
-            "needs_image": False,
-        },
-        config={"configurable": {"session": _FakeSession()}},
-    )
-
-    assert state["reply"] == "Please upload clear photos of the item."
-    assert state["needs_image"] is True
-    assert state["complete"] is False
-    assert completions.calls == 1
-
-
-# ── New v2 tests — category inference ────────────────────────────────────
+# ── Category list tests ───────────────────────────────────────────────────
 
 
 def test_category_list_includes_common_categories():
@@ -273,6 +348,9 @@ def test_category_list_includes_common_categories():
     assert "Phones" in CATEGORY_LIST
     assert "Watches" in CATEGORY_LIST
     assert "Headphones" in CATEGORY_LIST
+
+
+# ── execute_tool tests ────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -398,7 +476,7 @@ async def test_analyze_images_for_descriptors_tool_requires_images():
     assert "upload clear photos first" in result_text
 
 
-# ── New v2 tests — generate_listing tool ─────────────────────────────────
+# ── generate_listing tool tests ───────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -543,7 +621,7 @@ async def test_execute_generate_listing_handles_failure(monkeypatch):
     assert item.name == "old name"
 
 
-# ── New v2 tests — updated plan_next_step ────────────────────────────────
+# ── _plan_next_step — missing field deferral tests ────────────────────────
 
 
 @pytest.mark.asyncio
@@ -604,84 +682,3 @@ async def test_plan_next_step_still_asks_for_condition():
 
     assert reply is not None
     assert "condition" in reply.lower()
-
-
-# ── New v2 tests — generate_listing is not terminal ──────────────────────
-
-
-@pytest.mark.asyncio
-async def test_intake_node_does_not_terminate_on_generate_listing(monkeypatch):
-    """After generate_listing, the LLM should get another turn to present the result."""
-    gen_tool_call = SimpleNamespace(
-        id="call_gen",
-        function=SimpleNamespace(
-            name="generate_listing",
-            arguments=json.dumps(
-                {
-                    "raw_title": "nike trainers",
-                    "details": "Brand: Nike, Size: 10",
-                    "category": "Trainers",
-                }
-            ),
-        ),
-    )
-    response_with_tool = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[gen_tool_call]))]
-    )
-
-    response_text = SimpleNamespace(
-        choices=[
-            SimpleNamespace(
-                message=SimpleNamespace(
-                    content="Here's the listing I've created:\n\n"
-                    "**Title:** Nike Air Max 90 Trainers UK 10\n\n"
-                    "Does this look good?",
-                    tool_calls=None,
-                )
-            )
-        ]
-    )
-
-    completions = _FakeCompletions(responses=[response_with_tool, response_text])
-
-    monkeypatch.setattr(
-        "packages.agents.intake.graph.openai.AsyncOpenAI",
-        lambda **kwargs: SimpleNamespace(chat=SimpleNamespace(completions=completions)),
-    )
-
-    fixed_item_id = uuid.uuid4()
-
-    async def fake_execute_tool(**kwargs):
-        return (
-            "Generated listing:\n\n**Title:** Nike Air Max 90 Trainers UK 10\n\n"
-            "**Description:** Good condition.",
-            fixed_item_id,
-        )
-
-    async def fake_plan_next_step(session, item_id):
-        return None, False, False
-
-    monkeypatch.setattr("packages.agents.intake.graph.execute_tool", fake_execute_tool)
-    monkeypatch.setattr("packages.agents.intake.graph._plan_next_step", fake_plan_next_step)
-
-    state = await intake_node(
-        {
-            "seller_id": "00000000-0000-0000-0000-000000000001",
-            "item_id": str(uuid.uuid4()),
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Nike Air Max 90 trainers size 10",
-                }
-            ],
-            "reply": "",
-            "complete": False,
-            "needs_image": False,
-        },
-        config={"configurable": {"session": _FakeSession()}},
-    )
-
-    # LLM called twice: once for the tool, once for the presentation
-    assert completions.calls == 2
-    assert "listing" in state["reply"].lower() or "Nike" in state["reply"]
-    assert state["complete"] is False
