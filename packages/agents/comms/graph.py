@@ -208,9 +208,6 @@ async def agent_node(state: CommsState, config: RunnableConfig) -> dict[str, Any
     4. Dispatches tool calls via execute_tool (where walk_away_price IS enforced).
     5. Returns the draft reply and action.
     """
-    if isinstance(state, dict):
-        state = CommsState(**state)
-
     session: AsyncSession = config["configurable"]["session"]
     seller_id = uuid.UUID(state.seller_id)
     conversation_id = uuid.UUID(state.conversation_id)
