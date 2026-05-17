@@ -315,7 +315,7 @@ async def test_plan_next_step_completes_once_minimum_images_uploaded():
 
 
 @pytest.mark.asyncio
-async def test_plan_next_step_does_not_call_vision_automatically(monkeypatch):
+async def test_plan_next_step_calls_vision_automatically(monkeypatch):
     item_id = uuid.uuid4()
     seller_id = uuid.uuid4()
     item = Item(
@@ -329,8 +329,49 @@ async def test_plan_next_step_does_not_call_vision_automatically(monkeypatch):
     item.images = [_make_image(item_id, seller_id, i) for i in range(_MIN_LISTING_IMAGES)]
     session = _FakeSession(item=item, image_count=_MIN_LISTING_IMAGES)
 
+    fake_report = {
+        "condition_grade": "good",
+        "confidence": 0.85,
+        "visible_defects": [],
+        "visual_descriptors": [],
+        "photo_quality": "clear",
+        "description_addendum": "",
+        "descriptor_addendum": "",
+        "pricing_signals": [],
+        "comparable_include_terms": [],
+        "comparable_exclude_terms": [],
+    }
+    analyse = AsyncMock(return_value=fake_report)
+    monkeypatch.setattr("packages.agents.intake.graph.vision.analyse_item_images", analyse)
+    monkeypatch.setattr("packages.agents.intake.graph.vision.apply_visual_report_to_item", lambda *_: None)
+
+    _reply, _needs_image, complete = await _plan_next_step(session, item.id)
+
+    assert complete is True
+    analyse.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_plan_next_step_skips_vision_if_already_analyzed(monkeypatch):
+    """Vision should not re-run if visual_condition_analyzed_at is already set."""
+    from datetime import UTC, datetime
+
+    item_id = uuid.uuid4()
+    seller_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        seller_id=seller_id,
+        name="Nike Air Max 90",
+        category="Trainers",
+        condition=ItemCondition.good,
+        description="Nike Air Max 90 trainers in good condition.",
+    )
+    item.images = [_make_image(item_id, seller_id, i) for i in range(_MIN_LISTING_IMAGES)]
+    item.visual_condition_analyzed_at = datetime.now(UTC)
+    session = _FakeSession(item=item, image_count=_MIN_LISTING_IMAGES)
+
     analyse = AsyncMock()
-    monkeypatch.setattr("packages.agents.intake.tools.vision.analyse_item_images", analyse)
+    monkeypatch.setattr("packages.agents.intake.graph.vision.analyse_item_images", analyse)
 
     _reply, _needs_image, complete = await _plan_next_step(session, item.id)
 
