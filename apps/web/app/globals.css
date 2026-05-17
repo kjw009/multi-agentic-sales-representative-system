@@ -2,25 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Catppuccin Mocha Pink */
 @layer base {
   :root {
-    --background: 0 0% 98%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 222 47% 11%;
-    --primary: 222 47% 11%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
+    --background: 240 21% 15%;       /* base      #1e1e2e */
+    --foreground: 226 64% 88%;       /* text      #cdd6f4 */
+    --card: 240 21% 12%;             /* mantle    #181825 */
+    --card-foreground: 226 64% 88%;  /* text      #cdd6f4 */
+    --border: 237 16% 23%;           /* surface0  #313244 */
+    --input: 237 16% 23%;            /* surface0  #313244 */
+    --ring: 316 72% 86%;             /* pink      #f5c2e7 */
+    --primary: 316 72% 86%;          /* pink      #f5c2e7 */
+    --primary-foreground: 240 21% 15%;
+    --secondary: 234 13% 31%;        /* surface1  #45475a */
+    --secondary-foreground: 226 64% 88%;
+    --muted: 237 16% 23%;            /* surface0  #313244 */
+    --muted-foreground: 228 24% 72%; /* subtext0  #a6adc8 */
+    --accent: 267 84% 81%;           /* mauve     #cba6f7 */
+    --accent-foreground: 240 21% 15%;
+    --destructive: 343 81% 75%;      /* red       #f38ba8 */
+    --destructive-foreground: 240 21% 15%;
     --radius: 0.75rem;
   }
 }
