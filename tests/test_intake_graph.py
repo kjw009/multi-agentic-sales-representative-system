@@ -7,11 +7,11 @@ import pytest
 
 from packages.agents.intake.graph import (
     _MIN_LISTING_IMAGES,
+    IntakeState,
     _plan_next_step,
     call_model,
-    run_tools,
-    IntakeState,
     graph,
+    run_tools,
 )
 from packages.agents.intake.tools import (
     CATEGORY_LIST,

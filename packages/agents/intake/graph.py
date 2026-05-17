@@ -376,15 +376,14 @@ async def call_model(state: IntakeState, config: RunnableConfig) -> dict[str, An
 
     if not msg.tool_calls:
         return {
-            "messages": state.messages + [
-                {"role": "assistant", "content": msg.content or ""}
-            ],
+            "messages": state.messages + [{"role": "assistant", "content": msg.content or ""}],
             "reply": msg.content or "How can I help you today?",
             "iterations": new_iterations,
         }
 
     return {
-        "messages": state.messages + [
+        "messages": state.messages
+        + [
             {
                 "role": "assistant",
                 "content": msg.content,
@@ -494,9 +493,7 @@ async def run_tools(state: IntakeState, config: RunnableConfig) -> dict[str, Any
         # generate_listing and analyze_images_for_descriptors are non-terminal
 
     # No terminal tool fired — check guardrail before looping back
-    planned_reply, planned_needs_image, planned_complete = await _plan_next_step(
-        session, item_id
-    )
+    planned_reply, planned_needs_image, planned_complete = await _plan_next_step(session, item_id)
     result: dict[str, Any] = {
         "messages": new_messages,
         "item_id": str(item_id) if item_id else state.item_id,
