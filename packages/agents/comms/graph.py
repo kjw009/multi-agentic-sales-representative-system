@@ -475,7 +475,7 @@ async def action_node(state: CommsState, config: RunnableConfig) -> dict[str, An
                 seller_id=uuid.UUID(state.seller_id),
                 session=session,
                 parent_message_id=buyer_message.message_id,
-                recipient_id=state.buyer_handle or "",
+                recipient_id=conversation.buyer_handle if conversation else "",
                 item_id=item_external_id,
             )
             logger.info(
@@ -535,7 +535,7 @@ async def run_comms(
                 seller_id=str(seller_id),
                 conversation_id=str(conversation_id),
                 message_id=str(message_id),
-                buyer_handle="Unknown",  # Passed from SQS worker if available
+                buyer_handle="",
                 raw_text=raw_text,
             ),
             config={"configurable": {"session": session}},
