@@ -18,6 +18,7 @@ Graph structure (ReAct loop):
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import openai
@@ -29,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from packages.agents.intake import vision
 from packages.agents.intake.tools import (
     CATEGORY_ENRICHMENT_HINTS,
     CATEGORY_LIST,
@@ -86,13 +88,6 @@ excellent listing. Questions should be relevant to the category:
 - Clothing/Shoes: size, colour, material, sole condition (shoes)?
 - Furniture: dimensions, material, colour?
 - General: cosmetic defects, included accessories, reason for selling?
-
-If photos are already uploaded and the seller's details are too generic, call \
-analyze_images_for_descriptors to enrich the listing from visible evidence. \
-This is especially useful for unbranded or visual items like jewellery, clothing, \
-shoes, watches, furniture, bags, and collectibles. Use cautious wording: do not \
-claim authenticity, precious metals, gemstones, or brand unless visible markings \
-prove them.
 
 Ask ONE question at a time. Keep it conversational and friendly. Aim up \
 to 6 questions total to gather all missing information and every enrinchment \
@@ -285,6 +280,13 @@ async def _plan_next_step(
             True,
             False,
         )
+
+    if not item.visual_condition_analyzed_at:
+        images = list(item.images or [])
+        report = await vision.analyse_item_images(item, images)
+        vision.apply_visual_report_to_item(item, report)
+        item.visual_condition_analyzed_at = datetime.now(UTC)
+        await session.flush()
 
     item.status = ItemStatus.intake_complete
     await session.flush()
