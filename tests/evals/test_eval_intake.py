@@ -3,7 +3,7 @@ import uuid
 import pytest
 from langsmith import Client, aevaluate
 
-from packages.agents.intake.graph import IntakeState, intake_node
+from packages.agents.intake.graph import IntakeState, graph
 from packages.config import settings
 from packages.db.models import Item, ItemCondition
 from tests.evals._helpers import collect_scores, mean
@@ -29,7 +29,7 @@ class _FakeSession:
 
 
 async def intake_target(inputs: dict) -> dict:
-    """Run intake_node against a buyer message and return the attributes
+    """Run the intake graph against a buyer message and return the attributes
     the agent persisted onto the mock Item."""
     message = inputs.get("message", "")
 
@@ -50,12 +50,9 @@ async def intake_target(inputs: dict) -> dict:
         seller_id=seller_id,
         item_id=item_id,
         messages=[{"role": "user", "content": message}],
-        reply="",
-        complete=False,
-        needs_image=False,
     )
 
-    await intake_node(state, config={"configurable": {"session": session}})
+    await graph.ainvoke(state, config={"configurable": {"session": session}})
 
     return {
         "attributes": {
