@@ -1,4 +1,3 @@
-@import url("https://catppuccin.github.io/discord/dist/catppuccin-mocha-pink.theme.css");
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono&display=swap");
 
 @tailwind base;
@@ -9,26 +8,26 @@
   font-family: "JetBrains Mono", monospace !important;
 }
 
-/* Catppuccin Mocha Pink */
+/* Catppuccin Latte Pink */
 @layer base {
   :root {
-    --background: 240 21% 15%;       /* base      #1e1e2e */
-    --foreground: 226 64% 88%;       /* text      #cdd6f4 */
-    --card: 240 21% 12%;             /* mantle    #181825 */
-    --card-foreground: 226 64% 88%;  /* text      #cdd6f4 */
-    --border: 237 16% 23%;           /* surface0  #313244 */
-    --input: 237 16% 23%;            /* surface0  #313244 */
-    --ring: 316 72% 86%;             /* pink      #f5c2e7 */
-    --primary: 316 72% 86%;          /* pink      #f5c2e7 */
-    --primary-foreground: 240 21% 15%;
-    --secondary: 234 13% 31%;        /* surface1  #45475a */
-    --secondary-foreground: 226 64% 88%;
-    --muted: 237 16% 23%;            /* surface0  #313244 */
-    --muted-foreground: 228 24% 72%; /* subtext0  #a6adc8 */
-    --accent: 267 84% 81%;           /* mauve     #cba6f7 */
-    --accent-foreground: 240 21% 15%;
-    --destructive: 343 81% 75%;      /* red       #f38ba8 */
-    --destructive-foreground: 240 21% 15%;
+    --background: 220 23% 95%;       /* base      #eff1f5 */
+    --foreground: 234 16% 35%;       /* text      #4c4f69 */
+    --card: 220 22% 92%;             /* mantle    #e6e9ef */
+    --card-foreground: 234 16% 35%;  /* text      #4c4f69 */
+    --border: 223 16% 83%;           /* surface0  #ccd0da */
+    --input: 223 16% 83%;            /* surface0  #ccd0da */
+    --ring: 316 73% 69%;             /* pink      #ea76cb */
+    --primary: 316 73% 69%;          /* pink      #ea76cb */
+    --primary-foreground: 220 23% 95%;
+    --secondary: 225 14% 77%;        /* surface1  #bcc0cc */
+    --secondary-foreground: 234 16% 35%;
+    --muted: 223 16% 83%;            /* surface0  #ccd0da */
+    --muted-foreground: 233 10% 47%; /* subtext0  #6c6f85 */
+    --accent: 266 85% 58%;           /* mauve     #8839ef */
+    --accent-foreground: 220 23% 95%;
+    --destructive: 347 87% 44%;      /* red       #d20f39 */
+    --destructive-foreground: 220 23% 95%;
     --radius: 0.75rem;
   }
 }
